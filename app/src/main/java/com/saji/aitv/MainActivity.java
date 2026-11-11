@@ -2,6 +2,7 @@ package com.saji.aitv;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.pm.PackageManager;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -10,6 +11,7 @@ import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
 import android.os.Bundle;
@@ -44,10 +46,15 @@ public class MainActivity extends Activity {
     private LinearLayout browserRail;
     private LinearLayout backControl;
     private LinearLayout micControl;
+    private LinearLayout siteControl;
     private WebView webView;
     private boolean browserOpen;
     private boolean pendingMic;
     private boolean micActivationPending;
+    private PermissionRequest pendingWebPermissionRequest;
+    private AlertDialog pendingPermissionDialog;
+    private String pendingWebsiteKey;
+    private boolean rememberPendingWebsitePermission;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -102,16 +109,21 @@ public class MainActivity extends Activity {
         railParams.bottomMargin = dp(18);
         root.addView(browserRail, railParams);
 
-        backControl = railButton(false, "BACK");
-        micControl = railButton(true, "VOICE");
+        backControl = railButton(0, "BACK");
+        micControl = railButton(1, "VOICE");
+        siteControl = railButton(2, "SITE");
         browserRail.addView(backControl, new LinearLayout.LayoutParams(
                 dp(62), dp(76)));
-        addGap(browserRail, dp(18));
+        addGap(browserRail, dp(12));
         browserRail.addView(micControl, new LinearLayout.LayoutParams(
+                dp(62), dp(76)));
+        addGap(browserRail, dp(12));
+        browserRail.addView(siteControl, new LinearLayout.LayoutParams(
                 dp(62), dp(76)));
 
         backControl.setOnClickListener(v -> goBackOrHome());
         micControl.setOnClickListener(v -> requestMicAndActivate());
+        siteControl.setOnClickListener(v -> openWebsitePermissionSettings());
         browserRail.setVisibility(View.GONE);
     }
 
@@ -342,21 +354,18 @@ public class MainActivity extends Activity {
         candidate.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(PermissionRequest request) {
-                boolean asksAudio = false;
-                boolean asksOther = false;
-                for (String resource : request.getResources()) {
-                    if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
-                        asksAudio = true;
-                    } else {
-                        asksOther = true;
+                runOnUiThread(() -> handleWebsitePermissionRequest(request));
+            }
+
+            @Override
+            public void onPermissionRequestCanceled(PermissionRequest request) {
+                runOnUiThread(() -> {
+                    if (pendingWebPermissionRequest == request) {
+                        dismissPendingPermissionDialog();
+                        pendingWebPermissionRequest = null;
+                        pendingWebsiteKey = null;
                     }
-                }
-                if (asksAudio && !asksOther && hasAudioPermission()) {
-                    request.grant(new String[]{
-                            PermissionRequest.RESOURCE_AUDIO_CAPTURE});
-                } else {
-                    request.deny();
-                }
+                });
             }
         });
 
@@ -383,7 +392,7 @@ public class MainActivity extends Activity {
         showHome("The web page engine restarted. Select an AI app to try again.", true);
     }
 
-    private LinearLayout railButton(boolean microphone, String label) {
+    private LinearLayout railButton(int iconMode, String label) {
         LinearLayout item = new LinearLayout(this);
         item.setOrientation(LinearLayout.VERTICAL);
         item.setGravity(Gravity.CENTER);
@@ -393,7 +402,7 @@ public class MainActivity extends Activity {
         item.setBackground(glassButton(false));
         item.setElevation(dp(2));
 
-        IconView icon = new IconView(this, microphone);
+        IconView icon = new IconView(this, iconMode);
         LinearLayout.LayoutParams iconParams =
                 new LinearLayout.LayoutParams(dp(30), dp(30));
         item.addView(icon, iconParams);
@@ -498,14 +507,229 @@ public class MainActivity extends Activity {
         if (requestCode == REQ_AUDIO) {
             boolean granted = grantResults.length > 0
                     && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+
+            if (pendingWebPermissionRequest != null) {
+                if (granted) {
+                    grantPendingWebsitePermission();
+                } else {
+                    denyPendingWebsitePermission();
+                    Toast.makeText(this, "Android microphone permission was denied.",
+                            Toast.LENGTH_SHORT).show();
+                }
+            }
+
             if (granted && pendingMic) {
                 activateWebsiteMic();
-            } else {
+            } else if (!granted && pendingMic) {
                 Toast.makeText(this, "Microphone permission was not granted.",
                         Toast.LENGTH_SHORT).show();
             }
             pendingMic = false;
         }
+    }
+
+    private void handleWebsitePermissionRequest(PermissionRequest request) {
+        if (request == null) return;
+
+        boolean asksAudio = false;
+        boolean asksOther = false;
+        String[] resources = request.getResources();
+        if (resources != null) {
+            for (String resource : resources) {
+                if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
+                    asksAudio = true;
+                } else {
+                    asksOther = true;
+                }
+            }
+        }
+
+        String siteKey = trustedWebsiteKey(request.getOrigin());
+        if (!asksAudio || asksOther || siteKey == null) {
+            request.deny();
+            Toast.makeText(this, "Microphone request from an unsupported website was blocked.",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (pendingWebPermissionRequest != null
+                && pendingWebPermissionRequest != request) {
+            denyPendingWebsitePermission();
+        }
+
+        pendingWebPermissionRequest = request;
+        pendingWebsiteKey = siteKey;
+
+        if (isWebsiteMicAllowed(siteKey)) {
+            if (hasAudioPermission()) {
+                grantPendingWebsitePermission();
+            } else {
+                requestAndroidMicForWebsite();
+            }
+            return;
+        }
+
+        String siteName = websiteDisplayName(siteKey);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Allow microphone?")
+                .setMessage(siteName + " is asking to use the microphone. "
+                        + "You can allow it once or remember this choice in SITE settings.")
+                .setPositiveButton("Allow once", (d, which) ->
+                        allowPendingWebsitePermission(false))
+                .setNeutralButton("Always allow", (d, which) ->
+                        allowPendingWebsitePermission(true))
+                .setNegativeButton("Block", (d, which) ->
+                        denyPendingWebsitePermission())
+                .create();
+        pendingPermissionDialog = dialog;
+        dialog.setOnCancelListener(d -> denyPendingWebsitePermission());
+        dialog.setOnShowListener(d -> {
+            if (dialog.getButton(AlertDialog.BUTTON_POSITIVE) != null) {
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).requestFocus();
+            }
+        });
+        dialog.show();
+    }
+
+    private void allowPendingWebsitePermission(boolean remember) {
+        if (pendingWebPermissionRequest == null) return;
+        rememberPendingWebsitePermission = remember;
+        if (remember && pendingWebsiteKey != null) {
+            getPreferences(MODE_PRIVATE).edit()
+                    .putBoolean(websitePreferenceKey(pendingWebsiteKey), true)
+                    .apply();
+        }
+        dismissPendingPermissionDialog();
+        if (hasAudioPermission()) {
+            grantPendingWebsitePermission();
+        } else if (Build.VERSION.SDK_INT >= 23) {
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
+        } else {
+            grantPendingWebsitePermission();
+        }
+    }
+
+    private void requestAndroidMicForWebsite() {
+        if (Build.VERSION.SDK_INT >= 23) {
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
+        } else {
+            grantPendingWebsitePermission();
+        }
+    }
+
+    private void grantPendingWebsitePermission() {
+        PermissionRequest request = pendingWebPermissionRequest;
+        if (request == null) return;
+        pendingWebPermissionRequest = null;
+        pendingWebsiteKey = null;
+        rememberPendingWebsitePermission = false;
+        dismissPendingPermissionDialog();
+        try {
+            request.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+            Toast.makeText(this, "Website microphone permission allowed.",
+                    Toast.LENGTH_SHORT).show();
+        } catch (Throwable error) {
+            try { request.deny(); } catch (Throwable ignored) {}
+            Toast.makeText(this, "Web microphone access could not be started.",
+                    Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void denyPendingWebsitePermission() {
+        PermissionRequest request = pendingWebPermissionRequest;
+        pendingWebPermissionRequest = null;
+        pendingWebsiteKey = null;
+        rememberPendingWebsitePermission = false;
+        dismissPendingPermissionDialog();
+        if (request != null) {
+            try { request.deny(); } catch (Throwable ignored) {}
+        }
+    }
+
+    private void dismissPendingPermissionDialog() {
+        AlertDialog dialog = pendingPermissionDialog;
+        pendingPermissionDialog = null;
+        if (dialog != null && dialog.isShowing()) {
+            try { dialog.dismiss(); } catch (Throwable ignored) {}
+        }
+    }
+
+    private String trustedWebsiteKey(Uri origin) {
+        if (origin == null || !"https".equalsIgnoreCase(origin.getScheme())) return null;
+        String host = origin.getHost();
+        if (host == null) return null;
+        host = host.toLowerCase(java.util.Locale.ROOT);
+        if ("gemini.google.com".equals(host)) return "gemini";
+        if ("chatgpt.com".equals(host) || "chat.openai.com".equals(host)) {
+            return "chatgpt";
+        }
+        return null;
+    }
+
+    private String currentWebsiteKey() {
+        if (webView == null || webView.getUrl() == null) return null;
+        try {
+            return trustedWebsiteKey(Uri.parse(webView.getUrl()));
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private String websitePreferenceKey(String siteKey) {
+        return "website_mic_" + siteKey;
+    }
+
+    private boolean isWebsiteMicAllowed(String siteKey) {
+        return getPreferences(MODE_PRIVATE)
+                .getBoolean(websitePreferenceKey(siteKey), false);
+    }
+
+    private String websiteDisplayName(String siteKey) {
+        return "gemini".equals(siteKey) ? "Google Gemini" : "ChatGPT";
+    }
+
+    private void openWebsitePermissionSettings() {
+        String siteKey = currentWebsiteKey();
+        if (siteKey == null) {
+            Toast.makeText(this, "Open Gemini or ChatGPT first to manage its mic permission.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        boolean allowed = isWebsiteMicAllowed(siteKey);
+        String status = allowed ? "ALLOWED" : "BLOCKED";
+        String appStatus = hasAudioPermission() ? "Android app permission: ON"
+                : "Android app permission: OFF";
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(websiteDisplayName(siteKey) + " microphone")
+                .setMessage("Website permission: " + status + "\n" + appStatus
+                        + "\n\nThis setting controls microphone access for this website inside SAJI AI TV.")
+                .setPositiveButton(allowed ? "Keep allowed" : "Allow microphone",
+                        (d, which) -> {
+                            getPreferences(MODE_PRIVATE).edit()
+                                    .putBoolean(websitePreferenceKey(siteKey), true)
+                                    .apply();
+                            Toast.makeText(this, websiteDisplayName(siteKey)
+                                    + " microphone is allowed.", Toast.LENGTH_SHORT).show();
+                        })
+                .setNegativeButton("Block microphone", (d, which) -> {
+                    getPreferences(MODE_PRIVATE).edit()
+                            .putBoolean(websitePreferenceKey(siteKey), false)
+                            .apply();
+                    if (siteKey.equals(pendingWebsiteKey)) {
+                        denyPendingWebsitePermission();
+                    }
+                    Toast.makeText(this, websiteDisplayName(siteKey)
+                            + " microphone is blocked.", Toast.LENGTH_SHORT).show();
+                })
+                .setNeutralButton("Cancel", null)
+                .create();
+        dialog.setOnShowListener(d -> {
+            if (dialog.getButton(AlertDialog.BUTTON_POSITIVE) != null) {
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).requestFocus();
+            }
+        });
+        dialog.show();
     }
 
     // Track website microphone streams so SAJI can release its own stale
@@ -595,13 +819,13 @@ public class MainActivity extends Activity {
 
     private class IconView extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final boolean microphone;
+        private final int iconMode;
         private final Path path = new Path();
         private boolean focused;
 
-        IconView(Activity activity, boolean microphone) {
+        IconView(Activity activity, int iconMode) {
             super(activity);
-            this.microphone = microphone;
+            this.iconMode = iconMode;
             setLayerType(View.LAYER_TYPE_SOFTWARE, null);
         }
 
@@ -625,7 +849,7 @@ public class MainActivity extends Activity {
             paint.setStrokeCap(Paint.Cap.ROUND);
             paint.setStrokeJoin(Paint.Join.ROUND);
 
-            if (microphone) {
+            if (iconMode == 1) {
                 RectF capsule = new RectF(18, 5, 30, 27);
                 canvas.drawRoundRect(capsule, 6, 6, paint);
                 path.reset();
@@ -635,7 +859,7 @@ public class MainActivity extends Activity {
                 canvas.drawPath(path, paint);
                 canvas.drawLine(24, 36, 24, 42, paint);
                 canvas.drawLine(17, 42, 31, 42, paint);
-            } else {
+            } else if (iconMode == 0) {
                 path.reset();
                 path.moveTo(27, 10);
                 path.lineTo(13, 24);
@@ -643,6 +867,14 @@ public class MainActivity extends Activity {
                 path.moveTo(14, 24);
                 path.lineTo(37, 24);
                 canvas.drawPath(path, paint);
+            } else {
+                canvas.drawRoundRect(new RectF(10, 10, 38, 38), 5, 5, paint);
+                canvas.drawLine(16, 18, 32, 18, paint);
+                canvas.drawLine(16, 24, 32, 24, paint);
+                canvas.drawLine(16, 30, 32, 30, paint);
+                canvas.drawCircle(21, 18, 2.5f, paint);
+                canvas.drawCircle(28, 24, 2.5f, paint);
+                canvas.drawCircle(23, 30, 2.5f, paint);
             }
             canvas.restore();
         }
@@ -699,6 +931,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         try {
+            denyPendingWebsitePermission();
             if (webView != null) {
                 stopWebViewMic();
                 webView.stopLoading();
