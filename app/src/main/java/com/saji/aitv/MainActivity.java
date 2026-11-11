@@ -55,6 +55,8 @@ public class MainActivity extends Activity {
     private LinearLayout backControl;
     private LinearLayout micControl;
     private LinearLayout sendControl;
+    private LinearLayout scrollUpControl;
+    private LinearLayout scrollDownControl;
     private LinearLayout siteControl;
     private WebView webView;
     private boolean browserOpen;
@@ -123,6 +125,8 @@ public class MainActivity extends Activity {
         backControl = railButton(0, "BACK");
         micControl = railButton(1, "VOICE");
         sendControl = railButton(3, "SEND");
+        scrollUpControl = railButton(4, "UP");
+        scrollDownControl = railButton(5, "DOWN");
         siteControl = railButton(2, "SITE");
         browserRail.addView(backControl, new LinearLayout.LayoutParams(
                 dp(62), dp(76)));
@@ -131,21 +135,33 @@ public class MainActivity extends Activity {
                 dp(62), dp(76)));
         addGap(browserRail, dp(8));
         browserRail.addView(sendControl, new LinearLayout.LayoutParams(
-                dp(62), dp(76)));
-        addGap(browserRail, dp(10));
+                dp(62), dp(70)));
+        addGap(browserRail, dp(6));
+        browserRail.addView(scrollUpControl, new LinearLayout.LayoutParams(
+                dp(62), dp(66)));
+        addGap(browserRail, dp(5));
+        browserRail.addView(scrollDownControl, new LinearLayout.LayoutParams(
+                dp(62), dp(66)));
+        addGap(browserRail, dp(6));
         browserRail.addView(siteControl, new LinearLayout.LayoutParams(
-                dp(62), dp(76)));
+                dp(62), dp(70)));
 
         backControl.setOnClickListener(v -> goBackOrHome());
         micControl.setOnClickListener(v -> requestMicAndActivate());
         sendControl.setOnClickListener(v -> sendCurrentMessage());
+        scrollUpControl.setOnClickListener(v -> scrollAiScreen(-1));
+        scrollDownControl.setOnClickListener(v -> scrollAiScreen(1));
         siteControl.setOnClickListener(v -> openWebsitePermissionSettings());
         backControl.setNextFocusDownId(micControl.getId());
         micControl.setNextFocusUpId(backControl.getId());
         micControl.setNextFocusDownId(sendControl.getId());
         sendControl.setNextFocusUpId(micControl.getId());
-        sendControl.setNextFocusDownId(siteControl.getId());
-        siteControl.setNextFocusUpId(sendControl.getId());
+        sendControl.setNextFocusDownId(scrollUpControl.getId());
+        scrollUpControl.setNextFocusUpId(sendControl.getId());
+        scrollUpControl.setNextFocusDownId(scrollDownControl.getId());
+        scrollDownControl.setNextFocusUpId(scrollUpControl.getId());
+        scrollDownControl.setNextFocusDownId(siteControl.getId());
+        siteControl.setNextFocusUpId(scrollDownControl.getId());
         browserRail.setVisibility(View.GONE);
     }
 
@@ -503,6 +519,48 @@ public class MainActivity extends Activity {
         return super.dispatchKeyEvent(event);
     }
 
+
+
+    // Scroll the active AI conversation area without requiring a mouse.
+    private void scrollAiScreen(int direction) {
+        if (webView == null || !browserOpen) return;
+        String script = "(function(){try{"
+                + "var dir=" + "(directionPlaceholder)" + ";"
+                + "var active=document.activeElement;"
+                + "var candidates=[];"
+                + "var nodes=document.querySelectorAll('main,[role=main],"
+                + "[data-testid*=conversation],[class*=conversation],"
+                + "[class*=chat],[class*=scroll],div,section');"
+                + "for(var i=0;i<nodes.length;i++){var el=nodes[i];"
+                + "if(!el||el===document.body||el===document.documentElement)continue;"
+                + "var r=el.getBoundingClientRect();"
+                + "if(r.width<100||r.height<100||r.bottom<0||r.top>innerHeight)continue;"
+                + "var st=getComputedStyle(el);"
+                + "var can=el.scrollHeight>el.clientHeight+30;"
+                + "if(!can)continue;"
+                + "var oy=st.overflowY||'';"
+                + "var semantic=(el.tagName==='MAIN'||el.getAttribute('role')==='main'"
+                + "||((el.className||'')+'').toLowerCase().match(/conversation|chat|scroll/));"
+                + "var area=Math.min(r.width,innerWidth)*Math.min(r.height,innerHeight);"
+                + "var score=area+(semantic?500000:0);"
+                + "if(active&&el.contains(active))score+=200000;"
+                + "if(oy==='hidden')score-=100000;"
+                + "candidates.push({el:el,score:score});}"
+                + "candidates.sort(function(a,b){return b.score-a.score;});"
+                + "var target=candidates.length?candidates[0].el:null;"
+                + "if(target){var amount=Math.max(260,Math.floor(target.clientHeight*0.68));"
+                + "target.scrollBy({top:dir*amount,behavior:'smooth'});"
+                + "return 'scrolled';}"
+                + "window.scrollBy({top:dir*Math.max(300,Math.floor(innerHeight*0.65)),behavior:'smooth'});"
+                + "return 'page';}catch(e){return 'error';}})()";
+        script = script.replace("(directionPlaceholder)", direction < 0 ? "-1" : "1");
+        webView.evaluateJavascript(script, result -> {
+            if (result != null && result.contains("error")) {
+                Toast.makeText(this, "Screen scroll nahi ho saki. Page dobara load karo.",
+                        Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
 
     // Send the text already present in the active AI composer.
     // Each supported website is handled separately to avoid clicking unrelated controls.
@@ -1084,6 +1142,22 @@ public class MainActivity extends Activity {
                 path.lineTo(27, 38);
                 path.moveTo(14, 24);
                 path.lineTo(37, 24);
+                canvas.drawPath(path, paint);
+            } else if (iconMode == 4) {
+                path.reset();
+                path.moveTo(10, 29);
+                path.lineTo(24, 15);
+                path.lineTo(38, 29);
+                path.moveTo(24, 16);
+                path.lineTo(24, 40);
+                canvas.drawPath(path, paint);
+            } else if (iconMode == 5) {
+                path.reset();
+                path.moveTo(10, 19);
+                path.lineTo(24, 33);
+                path.lineTo(38, 19);
+                path.moveTo(24, 8);
+                path.lineTo(24, 32);
                 canvas.drawPath(path, paint);
             } else if (iconMode == 3) {
                 path.reset();
