@@ -4,6 +4,14 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.pm.PackageManager;
+import android.content.Intent;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
+import android.speech.RecognitionListener;
+import android.os.Handler;
+import android.os.Looper;
+import org.json.JSONObject;
+import java.util.ArrayList;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -55,6 +63,8 @@ public class MainActivity extends Activity {
     private AlertDialog pendingPermissionDialog;
     private String pendingWebsiteKey;
     private boolean rememberPendingWebsitePermission;
+    private SpeechRecognizer speechRecognizer;
+    private boolean nativeSpeechListening;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -481,9 +491,9 @@ public class MainActivity extends Activity {
     }
 
     private void requestMicAndActivate() {
-        if (webView == null) return;
+        if (webView == null || !browserOpen) return;
         if (hasAudioPermission()) {
-            activateWebsiteMic();
+            startNativeSpeechInput();
         } else if (Build.VERSION.SDK_INT >= 23) {
             pendingMic = true;
             requestPermissions(new String[]{
@@ -491,6 +501,145 @@ public class MainActivity extends Activity {
         } else {
             Toast.makeText(this, "Microphone permission is not available.",
                     Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // Native Android speech-to-text: the website no longer has to transcribe
+    // its own audio stream. The recognized words are inserted into its composer.
+    private void startNativeSpeechInput() {
+        if (webView == null || !browserOpen) return;
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            Toast.makeText(this,
+                    "Is TV par Android Speech Recognition service available nahi hai.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        try {
+            stopNativeSpeechInput();
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+            speechRecognizer.setRecognitionListener(new RecognitionListener() {
+                @Override public void onReadyForSpeech(Bundle params) {
+                    nativeSpeechListening = true;
+                    Toast.makeText(MainActivity.this, "Listening... bolo ab.",
+                            Toast.LENGTH_SHORT).show();
+                }
+                @Override public void onBeginningOfSpeech() {}
+                @Override public void onRmsChanged(float rmsdB) {}
+                @Override public void onBufferReceived(byte[] buffer) {}
+                @Override public void onEndOfSpeech() {
+                    nativeSpeechListening = false;
+                    Toast.makeText(MainActivity.this, "Transcribing...",
+                            Toast.LENGTH_SHORT).show();
+                }
+                @Override public void onError(int error) {
+                    nativeSpeechListening = false;
+                    stopNativeSpeechInput();
+                    String message = error == SpeechRecognizer.ERROR_NO_MATCH
+                            ? "Awaaz samajh nahi aayi. Dobara try karo."
+                            : error == SpeechRecognizer.ERROR_NETWORK
+                            || error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT
+                            ? "Speech service ka network issue hai."
+                            : error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
+                            ? "Android microphone permission check karo."
+                            : "Voice recognition fail hui. Speech service check karo.";
+                    Toast.makeText(MainActivity.this, message,
+                            Toast.LENGTH_LONG).show();
+                }
+                @Override public void onResults(Bundle results) {
+                    nativeSpeechListening = false;
+                    ArrayList<String> matches = results == null ? null
+                            : results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    String transcript = matches == null || matches.isEmpty()
+                            ? "" : matches.get(0);
+                    stopNativeSpeechInput();
+                    if (transcript.trim().isEmpty()) {
+                        Toast.makeText(MainActivity.this,
+                                "Koi text recognize nahi hua. Dobara bolo.",
+                                Toast.LENGTH_LONG).show();
+                    } else {
+                        insertTranscriptIntoComposer(transcript.trim());
+                    }
+                }
+                @Override public void onPartialResults(Bundle partialResults) {}
+                @Override public void onEvent(int eventType, Bundle params) {}
+            });
+
+            Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ur-PK");
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ur-PK");
+            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
+            intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
+            speechRecognizer.startListening(intent);
+        } catch (Throwable error) {
+            stopNativeSpeechInput();
+            Toast.makeText(this,
+                    "Native voice service start nahi ho saki. TV par Google Speech Services check karo.",
+                    Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void insertTranscriptIntoComposer(String transcript) {
+        if (webView == null || !browserOpen) return;
+        final String quoted;
+        try {
+            quoted = JSONObject.quote(transcript);
+        } catch (Throwable error) {
+            Toast.makeText(this, "Transcript prepare nahi ho saka.",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String script = "(function(){try{"
+                + "var text=" + quoted + ";"
+                + "var selectors=['textarea#prompt-textarea',"
+                + " 'textarea[placeholder*="Message"]',"
+                + " 'rich-textarea [contenteditable="true"]',"
+                + " '[contenteditable="true"][role="textbox"]',"
+                + " '[role="textbox"]','textarea',"
+                + " 'input[type="text"]','[contenteditable="true"]'];"
+                + "var el=null;"
+                + "for(var i=0;i<selectors.length&&!el;i++){"
+                + "var list=document.querySelectorAll(selectors[i]);"
+                + "for(var j=list.length-1;j>=0;j--){var n=list[j];"
+                + "var r=n.getBoundingClientRect();"
+                + "if(r.width>0&&r.height>0&&!n.disabled&&!n.readOnly){el=n;break;}}}"
+                + "if(!el)return 'missing';"
+                + "el.focus();"
+                + "var isEdit=el.isContentEditable||el.getAttribute('contenteditable')==='true';"
+                + "if(isEdit){"
+                + "var old=el.innerText||el.textContent||'';"
+                + "el.textContent=(old?old+' ':'')+text;"
+                + "try{var range=document.createRange();range.selectNodeContents(el);"
+                + "range.collapse(false);var sel=window.getSelection();"
+                + "sel.removeAllRanges();sel.addRange(range);}catch(e){}"
+                + "}else{"
+                + "var proto=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;"
+                + "var setter=Object.getOwnPropertyDescriptor(proto,'value').set;"
+                + "setter.call(el,(el.value?el.value+' ':'')+text);"
+                + "}"
+                + "el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:text}));"
+                + "el.dispatchEvent(new Event('change',{bubbles:true}));"
+                + "return 'ok';}catch(e){return 'error';}})()";
+        webView.evaluateJavascript(script, result -> {
+            if (result != null && result.contains("ok")) {
+                Toast.makeText(this, "Text message box mein aa gaya. Ab Send dabao.",
+                        Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this,
+                        "Voice text mila, lekin website ka message box nahi mila. Page reload karke try karo.",
+                        Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    private void stopNativeSpeechInput() {
+        nativeSpeechListening = false;
+        SpeechRecognizer recognizer = speechRecognizer;
+        speechRecognizer = null;
+        if (recognizer != null) {
+            try { recognizer.cancel(); } catch (Throwable ignored) {}
+            try { recognizer.destroy(); } catch (Throwable ignored) {}
         }
     }
 
@@ -519,7 +668,7 @@ public class MainActivity extends Activity {
             }
 
             if (granted && pendingMic) {
-                activateWebsiteMic();
+                startNativeSpeechInput();
             } else if (!granted && pendingMic) {
                 Toast.makeText(this, "Microphone permission was not granted.",
                         Toast.LENGTH_SHORT).show();
@@ -918,6 +1067,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        stopNativeSpeechInput();
         try {
             if (webView != null) {
                 stopWebViewMic();
@@ -930,6 +1080,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        stopNativeSpeechInput();
         try {
             denyPendingWebsitePermission();
             if (webView != null) {
