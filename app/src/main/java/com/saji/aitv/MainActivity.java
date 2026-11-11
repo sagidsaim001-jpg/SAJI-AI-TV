@@ -10,6 +10,7 @@ import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.AudioManager;
 import android.net.http.SslError;
 import android.os.Build;
 import android.os.Bundle;
@@ -47,6 +48,7 @@ public class MainActivity extends Activity {
     private WebView webView;
     private boolean browserOpen;
     private boolean pendingMic;
+    private boolean micActivationPending;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -115,6 +117,7 @@ public class MainActivity extends Activity {
     }
 
     private void showHome(String message, boolean animate) {
+        stopWebViewMic();
         browserOpen = false;
         if (webView != null) webView.setVisibility(View.GONE);
         browserRail.setVisibility(View.GONE);
@@ -242,6 +245,7 @@ public class MainActivity extends Activity {
 
     private void openBrowser(String url) {
         try {
+            stopWebViewMic();
             ensureWebView();
             if (homeScreen != null) homeScreen.setVisibility(View.GONE);
             browserOpen = true;
@@ -305,6 +309,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 enterImmersive();
+                installMicLifecycleScript(view);
                 super.onPageFinished(view, url);
             }
 
@@ -439,6 +444,7 @@ public class MainActivity extends Activity {
     }
 
     private void goBackOrHome() {
+        stopWebViewMic();
         if (browserOpen && webView != null && webView.canGoBack()) {
             webView.goBack();
         } else {
@@ -503,8 +509,88 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Track website microphone streams so SAJI can release its own stale
+    // capture before asking Android/WebView to open a new voice session.
+    private void installMicLifecycleScript(WebView view) {
+        String script = "(function(){"
+                + "if(window.__sajiMicLifecycleReady)return;"
+                + "window.__sajiMicLifecycleReady=true;"
+                + "window.__sajiMicStreams=[];"
+                + "try{var md=navigator.mediaDevices;"
+                + "if(md&&md.getUserMedia){"
+                + "var original=md.getUserMedia.bind(md);"
+                + "md.getUserMedia=function(constraints){"
+                + "return original(constraints).then(function(stream){"
+                + "window.__sajiMicStreams.push(stream);return stream;"
+                + "});};}}catch(e){}"
+                + "window.__sajiStopMic=function(){var stopped=0;"
+                + "try{(window.__sajiMicStreams||[]).forEach(function(stream){"
+                + "stream.getAudioTracks().forEach(function(track){"
+                + "try{track.stop();stopped++;}catch(e){}});});"
+                + "window.__sajiMicStreams=[];"
+                + "document.querySelectorAll('audio,video').forEach(function(el){"
+                + "try{if(el.srcObject&&el.srcObject.getAudioTracks){"
+                + "el.srcObject.getAudioTracks().forEach(function(track){"
+                + "try{track.stop();stopped++;}catch(e){}});}}catch(e){}});"
+                + "}catch(e){}return stopped;};"
+                + "})()";
+        try {
+            view.evaluateJavascript(script, null);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void stopWebViewMic() {
+        try {
+            if (webView != null) {
+                webView.evaluateJavascript(
+                        "try{window.__sajiStopMic&&window.__sajiStopMic();}catch(e){}",
+                        null);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    // Android 7+ lets us inspect whether a capture session is still active.
+    // We cannot close another app's session, but can avoid opening a second one.
+    private boolean hasActiveMicSession() {
+        if (Build.VERSION.SDK_INT < 24) return false;
+        try {
+            AudioManager audioManager =
+                    (AudioManager) getSystemService(AUDIO_SERVICE);
+            return audioManager != null
+                    && !audioManager.getActiveRecordingConfigurations().isEmpty();
+        } catch (Throwable ignored) {
+            // Some TV firmware does not expose this diagnostic. Continue normally.
+            return false;
+        }
+    }
+
     private void activateWebsiteMic() {
-        if (webView == null) return;
+        if (webView == null || micActivationPending) return;
+        micActivationPending = true;
+        final WebView target = webView;
+
+        // Stop the last WebView capture first, then give Android time to release it.
+        target.evaluateJavascript(
+                "try{window.__sajiStopMic?window.__sajiStopMic():0;}catch(e){0}",
+                result -> target.postDelayed(() -> {
+                    if (target != webView || !browserOpen) {
+                        micActivationPending = false;
+                        return;
+                    }
+                    if (hasActiveMicSession()) {
+                        micActivationPending = false;
+                        Toast.makeText(this,
+                                "Microphone is busy. Close the other voice session, then retry.",
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    clickWebsiteMic(target);
+                }, 450));
+    }
+
+    private void clickWebsiteMic(WebView target) {
         String script = "(function(){"
                 + "const nodes=[...document.querySelectorAll('button,[role=button]')];"
                 + "const terms=['microphone','voice','dictate','record','start speaking',"
@@ -517,7 +603,8 @@ public class MainActivity extends Activity {
                 + "return terms.some(t=>s.includes(t));});"
                 + "if(el){el.click();return 'ok';}return 'missing';"
                 + "})()";
-        webView.evaluateJavascript(script, result -> {
+        target.evaluateJavascript(script, result -> {
+            micActivationPending = false;
             if (result != null && result.contains("ok")) {
                 Toast.makeText(this, "Voice control activated.",
                         Toast.LENGTH_SHORT).show();
@@ -623,7 +710,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         try {
-            if (webView != null) webView.onPause();
+            if (webView != null) {
+                stopWebViewMic();
+                webView.onPause();
+            }
         } catch (Throwable ignored) {
         }
         super.onPause();
@@ -633,6 +723,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         try {
             if (webView != null) {
+                stopWebViewMic();
                 webView.stopLoading();
                 webView.destroy();
                 webView = null;
