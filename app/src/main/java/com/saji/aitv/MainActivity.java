@@ -440,6 +440,9 @@ public class MainActivity extends Activity {
         }
         mobileModeControl.setContentDescription(
                 mobileMode ? "Switch to TV layout" : "Switch to mobile layout");
+        if (mobileModeControl.getChildAt(1) instanceof TextView) {
+            ((TextView) mobileModeControl.getChildAt(1)).setText(mobileMode ? "TV" : "MOBILE");
+        }
         Toast.makeText(this, mobileMode ? "Mobile layout enabled" : "TV layout restored",
                 Toast.LENGTH_SHORT).show();
     }
@@ -487,6 +490,7 @@ public class MainActivity extends Activity {
             setRailItemSize(siteControl, 58, 62);
             setRailItemSize(mobileModeControl, 66, 62);
             setMobileRailGaps(dp(4));
+            setGapSizes(true);
         } else {
             browserRail.setOrientation(LinearLayout.VERTICAL);
             browserRail.setGravity(Gravity.CENTER);
@@ -507,6 +511,7 @@ public class MainActivity extends Activity {
             setRailItemSize(siteControl, 62, 70);
             setRailItemSize(mobileModeControl, 62, 66);
             setMobileRailGaps(dp(6));
+            setGapSizes(false);
         }
         browserRail.setLayoutParams(railParams);
         if (webView != null) {
@@ -528,6 +533,21 @@ public class MainActivity extends Activity {
         item.setLayoutParams(p);
     }
 
+    private void setGapSizes(boolean horizontal) {
+        int[] originalHeights = {10, 8, 6, 5, 6, 6};
+        int gapIndex = 0;
+        for (int i = 0; i < browserRail.getChildCount(); i++) {
+            View child = browserRail.getChildAt(i);
+            if (child == backControl || child == micControl || child == sendControl
+                    || child == scrollUpControl || child == scrollDownControl
+                    || child == siteControl || child == mobileModeControl) continue;
+            LinearLayout.LayoutParams p = (LinearLayout.LayoutParams) child.getLayoutParams();
+            p.width = horizontal ? dp(4) : dp(1);
+            p.height = horizontal ? dp(1) : dp(originalHeights[Math.min(gapIndex, originalHeights.length - 1)]);
+            child.setLayoutParams(p);
+            gapIndex++;
+        }
+    }
     private void setMobileRailGaps(int gap) {
         View[] items = {backControl, micControl, sendControl, scrollUpControl,
                 scrollDownControl, siteControl, mobileModeControl};
