@@ -246,7 +246,7 @@ public class MainActivity extends Activity {
         backControl.requestFocus();
     }
 
-    private TextView railButton(String symbol, String label) {
+    private LinearLayout railButton(String symbol, String label) {
         LinearLayout item = new LinearLayout(this);
         item.setOrientation(LinearLayout.VERTICAL);
         item.setGravity(Gravity.CENTER);
