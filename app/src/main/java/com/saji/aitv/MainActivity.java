@@ -54,6 +54,7 @@ public class MainActivity extends Activity {
     private LinearLayout browserRail;
     private LinearLayout backControl;
     private LinearLayout micControl;
+    private LinearLayout sendControl;
     private LinearLayout siteControl;
     private WebView webView;
     private boolean browserOpen;
@@ -121,19 +122,30 @@ public class MainActivity extends Activity {
 
         backControl = railButton(0, "BACK");
         micControl = railButton(1, "VOICE");
+        sendControl = railButton(3, "SEND");
         siteControl = railButton(2, "SITE");
         browserRail.addView(backControl, new LinearLayout.LayoutParams(
                 dp(62), dp(76)));
-        addGap(browserRail, dp(12));
+        addGap(browserRail, dp(10));
         browserRail.addView(micControl, new LinearLayout.LayoutParams(
                 dp(62), dp(76)));
-        addGap(browserRail, dp(12));
+        addGap(browserRail, dp(8));
+        browserRail.addView(sendControl, new LinearLayout.LayoutParams(
+                dp(62), dp(76)));
+        addGap(browserRail, dp(10));
         browserRail.addView(siteControl, new LinearLayout.LayoutParams(
                 dp(62), dp(76)));
 
         backControl.setOnClickListener(v -> goBackOrHome());
         micControl.setOnClickListener(v -> requestMicAndActivate());
+        sendControl.setOnClickListener(v -> sendCurrentMessage());
         siteControl.setOnClickListener(v -> openWebsitePermissionSettings());
+        backControl.setNextFocusDownId(micControl.getId());
+        micControl.setNextFocusUpId(backControl.getId());
+        micControl.setNextFocusDownId(sendControl.getId());
+        sendControl.setNextFocusUpId(micControl.getId());
+        sendControl.setNextFocusDownId(siteControl.getId());
+        siteControl.setNextFocusUpId(sendControl.getId());
         browserRail.setVisibility(View.GONE);
     }
 
@@ -488,6 +500,65 @@ public class MainActivity extends Activity {
             return true;
         }
         return super.dispatchKeyEvent(event);
+    }
+
+
+    // Send the text already present in the active AI composer.
+    // Each supported website is handled separately to avoid clicking unrelated controls.
+    private void sendCurrentMessage() {
+        if (webView == null || !browserOpen) return;
+        String script = "(function(){try{"
+                + "var host=(location.hostname||'').toLowerCase();"
+                + "var isGemini=host==='gemini.google.com';"
+                + "var isChatGPT=host==='chatgpt.com'||host==='chat.openai.com';"
+                + "if(!isGemini&&!isChatGPT)return 'unsupported';"
+                + "var selectors=['textarea#prompt-textarea','rich-textarea [contenteditable]',"
+                + "'[role=textbox]','textarea','[contenteditable=true]'];"
+                + "var editor=null;"
+                + "for(var i=0;i<selectors.length&&!editor;i++){"
+                + "var nodes=document.querySelectorAll(selectors[i]);"
+                + "for(var j=nodes.length-1;j>=0;j--){var n=nodes[j];"
+                + "var r=n.getBoundingClientRect();"
+                + "var txt=(n.innerText||n.textContent||n.value||'').trim();"
+                + "if(r.width>0&&r.height>0&&!n.disabled&&!n.readOnly&&txt){editor=n;break;}}}"
+                + "if(!editor)return 'empty';"
+                + "var form=editor.closest('form');"
+                + "var buttons=[].slice.call(document.querySelectorAll('button,[role=button]'));"
+                + "var best=null,bestScore=0;"
+                + "buttons.forEach(function(b){"
+                + "var r=b.getBoundingClientRect();"
+                + "if(r.width<=0||r.height<=0||b.disabled||b.getAttribute('aria-disabled')==='true')return;"
+                + "var label=((b.getAttribute('aria-label')||'')+' '+"
+                + "(b.getAttribute('data-testid')||'')+' '+"
+                + "(b.getAttribute('title')||'')+' '+"
+                + "(b.innerText||b.textContent||'')).toLowerCase();"
+                + "var score=0;"
+                + "if(label.indexOf('send')>=0)score+=10;"
+                + "if(label.indexOf('submit')>=0)score+=8;"
+                + "if(label.indexOf('send-button')>=0)score+=12;"
+                + "if(isChatGPT&&label.indexOf('prompt')>=0&&label.indexOf('send')>=0)score+=4;"
+                + "if(isGemini&&label.indexOf('message')>=0&&label.indexOf('send')>=0)score+=4;"
+                + "if(score>bestScore){best=b;bestScore=score;}"
+                + "});"
+                + "if(best&&bestScore>=8){best.click();return 'sent';}"
+                + "if(form&&typeof form.requestSubmit==='function'){form.requestSubmit();return 'submitted';}"
+                + "return 'button_missing';"
+                + "}catch(e){return 'error';}})()";
+        webView.evaluateJavascript(script, result -> {
+            if (result != null && (result.contains("sent") || result.contains("submitted"))) {
+                Toast.makeText(this, "Message AI ko send kar diya.",
+                        Toast.LENGTH_SHORT).show();
+            } else if (result != null && result.contains("empty")) {
+                Toast.makeText(this, "Pehle message box mein text likho ya voice se bolo.",
+                        Toast.LENGTH_LONG).show();
+            } else if (result != null && result.contains("unsupported")) {
+                Toast.makeText(this, "Ye Send control sirf Gemini aur ChatGPT ke liye hai.",
+                        Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this, "Send button detect nahi hua. Message box check karo.",
+                        Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     private void requestMicAndActivate() {
@@ -1012,6 +1083,16 @@ public class MainActivity extends Activity {
                 path.lineTo(27, 38);
                 path.moveTo(14, 24);
                 path.lineTo(37, 24);
+                canvas.drawPath(path, paint);
+            } else if (iconMode == 3) {
+                path.reset();
+                path.moveTo(7, 23);
+                path.lineTo(41, 7);
+                path.lineTo(30, 41);
+                path.lineTo(23, 27);
+                path.lineTo(7, 23);
+                path.moveTo(23, 27);
+                path.lineTo(41, 7);
                 canvas.drawPath(path, paint);
             } else {
                 canvas.drawRoundRect(new RectF(10, 10, 38, 38), 5, 5, paint);
