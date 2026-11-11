@@ -10,7 +10,6 @@ import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.media.AudioManager;
 import android.net.http.SslError;
 import android.os.Build;
 import android.os.Bundle;
@@ -528,10 +527,6 @@ public class MainActivity extends Activity {
                 + "stream.getAudioTracks().forEach(function(track){"
                 + "try{track.stop();stopped++;}catch(e){}});});"
                 + "window.__sajiMicStreams=[];"
-                + "document.querySelectorAll('audio,video').forEach(function(el){"
-                + "try{if(el.srcObject&&el.srcObject.getAudioTracks){"
-                + "el.srcObject.getAudioTracks().forEach(function(track){"
-                + "try{track.stop();stopped++;}catch(e){}});}}catch(e){}});"
                 + "}catch(e){}return stopped;};"
                 + "})()";
         try {
@@ -551,21 +546,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    // Android 7+ lets us inspect whether a capture session is still active.
-    // We cannot close another app's session, but can avoid opening a second one.
-    private boolean hasActiveMicSession() {
-        if (Build.VERSION.SDK_INT < 24) return false;
-        try {
-            AudioManager audioManager =
-                    (AudioManager) getSystemService(AUDIO_SERVICE);
-            return audioManager != null
-                    && !audioManager.getActiveRecordingConfigurations().isEmpty();
-        } catch (Throwable ignored) {
-            // Some TV firmware does not expose this diagnostic. Continue normally.
-            return false;
-        }
-    }
-
     private void activateWebsiteMic() {
         if (webView == null || micActivationPending) return;
         micActivationPending = true;
@@ -579,13 +559,10 @@ public class MainActivity extends Activity {
                         micActivationPending = false;
                         return;
                     }
-                    if (hasActiveMicSession()) {
-                        micActivationPending = false;
-                        Toast.makeText(this,
-                                "Microphone is busy. Close the other voice session, then retry.",
-                                Toast.LENGTH_LONG).show();
-                        return;
-                    }
+                    // Do not block based on AudioManager's global active-session
+                    // list: some TV boxes report Assistant/hotword sessions here
+                    // even when Android can still route input to this foreground app.
+                    // Let WebView and Android's input-priority policy decide.
                     clickWebsiteMic(target);
                 }, 450));
     }
