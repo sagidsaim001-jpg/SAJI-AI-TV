@@ -421,6 +421,7 @@ public class MainActivity extends Activity {
         item.setFocusable(true);
         item.setFocusableInTouchMode(true);
         item.setClickable(true);
+        item.setId(View.generateViewId());
         item.setBackground(glassButton(false));
         item.setElevation(dp(2));
 
