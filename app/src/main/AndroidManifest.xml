@@ -7,11 +7,12 @@
 
     <application
         android:allowBackup="false"
-        android:label="SAJI AI"
+        android:label="SAJI AI TV"
         android:icon="@drawable/ic_saji_ai"
         android:roundIcon="@drawable/ic_saji_ai"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:usesCleartextTraffic="false"
+        android:hardwareAccelerated="true"
         android:supportsRtl="true">
         <activity
             android:name=".MainActivity"
