@@ -58,6 +58,9 @@ public class MainActivity extends Activity {
     private LinearLayout scrollUpControl;
     private LinearLayout scrollDownControl;
     private LinearLayout siteControl;
+    private LinearLayout mobileModeControl;
+    private boolean mobileMode;
+    private String activePageUrl = GEMINI_URL;
     private WebView webView;
     private boolean browserOpen;
     private boolean pendingMic;
@@ -128,6 +131,7 @@ public class MainActivity extends Activity {
         scrollUpControl = railButton(4, "UP");
         scrollDownControl = railButton(5, "DOWN");
         siteControl = railButton(2, "SITE");
+        mobileModeControl = railButton(6, "MOBILE");
         browserRail.addView(backControl, new LinearLayout.LayoutParams(
                 dp(62), dp(76)));
         addGap(browserRail, dp(10));
@@ -145,6 +149,9 @@ public class MainActivity extends Activity {
         addGap(browserRail, dp(6));
         browserRail.addView(siteControl, new LinearLayout.LayoutParams(
                 dp(62), dp(70)));
+        addGap(browserRail, dp(6));
+        browserRail.addView(mobileModeControl, new LinearLayout.LayoutParams(
+                dp(62), dp(66)));
 
         backControl.setOnClickListener(v -> goBackOrHome());
         micControl.setOnClickListener(v -> requestMicAndActivate());
@@ -152,6 +159,7 @@ public class MainActivity extends Activity {
         scrollUpControl.setOnClickListener(v -> scrollAiScreen(-1));
         scrollDownControl.setOnClickListener(v -> scrollAiScreen(1));
         siteControl.setOnClickListener(v -> openWebsitePermissionSettings());
+        mobileModeControl.setOnClickListener(v -> toggleMobileMode());
         backControl.setNextFocusDownId(micControl.getId());
         micControl.setNextFocusUpId(backControl.getId());
         micControl.setNextFocusDownId(sendControl.getId());
@@ -162,6 +170,8 @@ public class MainActivity extends Activity {
         scrollDownControl.setNextFocusUpId(scrollUpControl.getId());
         scrollDownControl.setNextFocusDownId(siteControl.getId());
         siteControl.setNextFocusUpId(scrollDownControl.getId());
+        siteControl.setNextFocusDownId(mobileModeControl.getId());
+        mobileModeControl.setNextFocusUpId(siteControl.getId());
         browserRail.setVisibility(View.GONE);
     }
 
@@ -300,6 +310,7 @@ public class MainActivity extends Activity {
             browserOpen = true;
             webView.setVisibility(View.VISIBLE);
             browserRail.setVisibility(View.VISIBLE);
+            activePageUrl = url;
             webView.loadUrl(url);
             browserRail.setAlpha(0f);
             browserRail.animate().alpha(1f).setDuration(220).start();
@@ -410,10 +421,124 @@ public class MainActivity extends Activity {
         FrameLayout.LayoutParams webParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT);
-        webParams.leftMargin = dp(82);
+        if (!mobileMode) webParams.leftMargin = dp(82);
+        else webParams.bottomMargin = dp(96);
         root.addView(candidate, 0, webParams);
         candidate.setVisibility(View.GONE);
         webView = candidate;
+    }
+
+
+    private void toggleMobileMode() {
+        mobileMode = !mobileMode;
+        applyLayoutMode();
+        if (webView != null && browserOpen) {
+            String current = webView.getUrl();
+            if (current != null && !current.isEmpty()) activePageUrl = current;
+            configureWebViewForMode();
+            webView.loadUrl(activePageUrl);
+        }
+        mobileModeControl.setContentDescription(
+                mobileMode ? "Switch to TV layout" : "Switch to mobile layout");
+        Toast.makeText(this, mobileMode ? "Mobile layout enabled" : "TV layout restored",
+                Toast.LENGTH_SHORT).show();
+    }
+
+    private void configureWebViewForMode() {
+        if (webView == null) return;
+        WebSettings settings = webView.getSettings();
+        String ua = settings.getUserAgentString();
+        if (mobileMode) {
+            String mobileUa = ua.replace("Android 13; TV", "Android 13")
+                    .replace("Android TV", "Android");
+            if (!mobileUa.contains("Mobile")) mobileUa = mobileUa.replace(" Safari/", " Mobile Safari/");
+            settings.setUserAgentString(mobileUa);
+            settings.setUseWideViewPort(false);
+            settings.setLoadWithOverviewMode(true);
+        } else {
+            String desktopUa = ua.replace(" Mobile Safari/", " Safari/")
+                    .replace("Android 13; Mobile", "Android 13");
+            settings.setUserAgentString(desktopUa);
+            settings.setUseWideViewPort(true);
+            settings.setLoadWithOverviewMode(false);
+        }
+    }
+
+    private void applyLayoutMode() {
+        if (browserRail == null) return;
+        FrameLayout.LayoutParams railParams = (FrameLayout.LayoutParams) browserRail.getLayoutParams();
+        if (mobileMode) {
+            browserRail.setOrientation(LinearLayout.HORIZONTAL);
+            browserRail.setGravity(Gravity.CENTER);
+            browserRail.setPadding(dp(8), dp(6), dp(8), dp(6));
+            railParams.width = FrameLayout.LayoutParams.MATCH_PARENT;
+            railParams.height = dp(82);
+            railParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+            railParams.leftMargin = dp(10);
+            railParams.rightMargin = dp(10);
+            railParams.topMargin = 0;
+            railParams.bottomMargin = dp(10);
+            browserRail.setBackground(glassPanel(false));
+            setRailItemSize(backControl, 58, 62);
+            setRailItemSize(micControl, 58, 62);
+            setRailItemSize(sendControl, 58, 62);
+            setRailItemSize(scrollUpControl, 58, 62);
+            setRailItemSize(scrollDownControl, 58, 62);
+            setRailItemSize(siteControl, 58, 62);
+            setRailItemSize(mobileModeControl, 66, 62);
+            setMobileRailGaps(dp(4));
+        } else {
+            browserRail.setOrientation(LinearLayout.VERTICAL);
+            browserRail.setGravity(Gravity.CENTER);
+            browserRail.setPadding(dp(8), dp(14), dp(8), dp(14));
+            railParams.width = dp(82);
+            railParams.height = FrameLayout.LayoutParams.MATCH_PARENT;
+            railParams.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
+            railParams.leftMargin = 0;
+            railParams.rightMargin = 0;
+            railParams.topMargin = dp(18);
+            railParams.bottomMargin = dp(18);
+            browserRail.setBackground(glassPanel(false));
+            setRailItemSize(backControl, 62, 76);
+            setRailItemSize(micControl, 62, 76);
+            setRailItemSize(sendControl, 62, 70);
+            setRailItemSize(scrollUpControl, 62, 66);
+            setRailItemSize(scrollDownControl, 62, 66);
+            setRailItemSize(siteControl, 62, 70);
+            setRailItemSize(mobileModeControl, 62, 66);
+            setMobileRailGaps(dp(6));
+        }
+        browserRail.setLayoutParams(railParams);
+        if (webView != null) {
+            FrameLayout.LayoutParams webParams = (FrameLayout.LayoutParams) webView.getLayoutParams();
+            webParams.leftMargin = mobileMode ? 0 : dp(82);
+            webParams.bottomMargin = mobileMode ? dp(96) : 0;
+            webView.setLayoutParams(webParams);
+            configureWebViewForMode();
+        }
+        mobileModeControl.setVisibility(browserOpen ? View.VISIBLE : View.GONE);
+        if (browserOpen) mobileModeControl.requestFocus();
+    }
+
+    private void setRailItemSize(LinearLayout item, int widthDp, int heightDp) {
+        LinearLayout.LayoutParams p = (LinearLayout.LayoutParams) item.getLayoutParams();
+        p.width = dp(widthDp);
+        p.height = dp(heightDp);
+        p.weight = 0;
+        item.setLayoutParams(p);
+    }
+
+    private void setMobileRailGaps(int gap) {
+        View[] items = {backControl, micControl, sendControl, scrollUpControl,
+                scrollDownControl, siteControl, mobileModeControl};
+        for (int i = 0; i < items.length; i++) {
+            LinearLayout.LayoutParams p = (LinearLayout.LayoutParams) items[i].getLayoutParams();
+            p.leftMargin = i == 0 ? 0 : gap / 2;
+            p.rightMargin = i == items.length - 1 ? 0 : gap / 2;
+            p.topMargin = 0;
+            p.bottomMargin = 0;
+            items[i].setLayoutParams(p);
+        }
     }
 
     private void recoverFromWebViewFailure() {
@@ -1159,6 +1284,11 @@ public class MainActivity extends Activity {
                 path.moveTo(24, 8);
                 path.lineTo(24, 32);
                 canvas.drawPath(path, paint);
+            } else if (iconMode == 6) {
+                RectF phone = new RectF(14, 4, 34, 44);
+                canvas.drawRoundRect(phone, 4, 4, paint);
+                canvas.drawLine(20, 9, 28, 9, paint);
+                canvas.drawCircle(24, 38, 1.7f, paint);
             } else if (iconMode == 3) {
                 path.reset();
                 path.moveTo(7, 23);
