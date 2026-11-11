@@ -35,8 +35,8 @@ public class MainActivity extends Activity {
     private WebView webView;
     private LinearLayout homeScreen;
     private LinearLayout browserRail;
-    private TextView backControl;
-    private TextView micControl;
+    private LinearLayout backControl;
+    private LinearLayout micControl;
     private boolean browserOpen = false;
     private boolean pendingMic = false;
 
@@ -267,15 +267,7 @@ public class MainActivity extends Activity {
                     dp(17), focused ? 0xFFB8C6FF : 0xFF6578C8,
                     focused ? dp(2) : dp(1), 0x555B76C8, dp(8)));
         });
-        return wrapAsTextView(item);
-    }
-
-    // Keeps rail controls as compact focusable native views.
-    private TextView wrapAsTextView(LinearLayout item) {
-        TextView proxy = new TextView(this);
-        proxy.setVisibility(View.GONE);
-        proxy.setFocusable(false);
-        return proxy;
+        return item;
     }
 
     private LinearLayout.LayoutParams railButtonParams() {
