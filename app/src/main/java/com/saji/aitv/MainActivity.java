@@ -965,12 +965,15 @@ public class MainActivity extends Activity {
 
 
     // Scroll the active AI conversation area without requiring a mouse.
+    // Cache the selected scroll container so every remote press does not scan
+    // the entire page. Use immediate movement for responsive TV remote control.
     private void scrollAiScreen(int direction) {
         if (webView == null || !browserOpen) return;
         String script = "(function(){try{"
-                + "var dir=" + "(directionPlaceholder)" + ";"
-                + "var active=document.activeElement;"
-                + "var candidates=[];"
+                + "var dir=" + (direction < 0 ? "-1" : "1") + ";"
+                + "var target=window.__sajiScrollTarget;"
+                + "if(!target||!target.isConnected||target.scrollHeight<=target.clientHeight+30){"
+                + "target=null;var active=document.activeElement;var best=-1;"
                 + "var nodes=document.querySelectorAll('main,[role=main],"
                 + "[data-testid*=conversation],[class*=conversation],"
                 + "[class*=chat],[class*=scroll],div,section');"
@@ -978,25 +981,20 @@ public class MainActivity extends Activity {
                 + "if(!el||el===document.body||el===document.documentElement)continue;"
                 + "var r=el.getBoundingClientRect();"
                 + "if(r.width<100||r.height<100||r.bottom<0||r.top>innerHeight)continue;"
-                + "var st=getComputedStyle(el);"
-                + "var can=el.scrollHeight>el.clientHeight+30;"
-                + "if(!can)continue;"
-                + "var oy=st.overflowY||'';"
-                + "var semantic=(el.tagName==='MAIN'||el.getAttribute('role')==='main'"
-                + "||((el.className||'')+'').toLowerCase().match(/conversation|chat|scroll/));"
-                + "var area=Math.min(r.width,innerWidth)*Math.min(r.height,innerHeight);"
-                + "var score=area+(semantic?500000:0);"
-                + "if(active&&el.contains(active))score+=200000;"
+                + "if(el.scrollHeight<=el.clientHeight+30)continue;"
+                + "var st=getComputedStyle(el);var oy=st.overflowY||'';"
+                + "var semantic=el.tagName==='MAIN'||el.getAttribute('role')==='main'"
+                + "||((el.className||'')+'').toLowerCase().match(/conversation|chat|scroll/);"
+                + "var score=Math.min(r.width,innerWidth)*Math.min(r.height,innerHeight)"
+                + "+(semantic?500000:0)+(active&&el.contains(active)?200000:0)"
+                + (");"
                 + "if(oy==='hidden')score-=100000;"
-                + "candidates.push({el:el,score:score});}"
-                + "candidates.sort(function(a,b){return b.score-a.score;});"
-                + "var target=candidates.length?candidates[0].el:null;"
+                + "if(score>best){best=score;target=el;}}"
+                + "window.__sajiScrollTarget=target;}"
                 + "if(target){var amount=Math.max(260,Math.floor(target.clientHeight*0.68));"
-                + "target.scrollBy({top:dir*amount,behavior:'smooth'});"
-                + "return 'scrolled';}"
-                + "window.scrollBy({top:dir*Math.max(300,Math.floor(innerHeight*0.65)),behavior:'smooth'});"
+                + "target.scrollTop+=dir*amount;return 'scrolled';}"
+                + "window.scrollBy(0,dir*Math.max(300,Math.floor(innerHeight*0.65)));"
                 + "return 'page';}catch(e){return 'error';}})()";
-        script = script.replace("(directionPlaceholder)", direction < 0 ? "-1" : "1");
         webView.evaluateJavascript(script, result -> {
             if (result != null && result.contains("error")) {
                 Toast.makeText(this, "Screen scroll nahi ho saki. Page dobara load karo.",
