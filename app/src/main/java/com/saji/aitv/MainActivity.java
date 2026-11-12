@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.pm.PackageManager;
+import android.content.pm.PackageInfo;
 import android.content.Intent;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -23,6 +24,7 @@ import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -59,6 +61,7 @@ public class MainActivity extends Activity {
     private LinearLayout scrollDownControl;
     private LinearLayout siteControl;
     private LinearLayout mobileModeControl;
+    private TextView settingsControl;
     private boolean mobileMode;
     private String activePageUrl = GEMINI_URL;
     private WebView webView;
@@ -193,6 +196,31 @@ public class MainActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
 
+        if (settingsControl != null) root.removeView(settingsControl);
+        settingsControl = text("⚙", 28, Color.WHITE, true);
+        settingsControl.setFocusable(true);
+        settingsControl.setFocusableInTouchMode(true);
+        settingsControl.setClickable(true);
+        settingsControl.setId(View.generateViewId());
+        settingsControl.setBackground(roundRect(0xCC202B49, dp(18),
+                0xFF8193FF, dp(1)));
+        settingsControl.setElevation(dp(8));
+        settingsControl.setContentDescription("SAJI AI settings");
+        settingsControl.setOnFocusChangeListener((v, focused) -> {
+            v.animate().scaleX(focused ? 1.10f : 1f)
+                    .scaleY(focused ? 1.10f : 1f)
+                    .setDuration(150).start();
+            v.setBackground(roundRect(focused ? 0xFF35466F : 0xCC202B49,
+                    dp(18), focused ? Color.WHITE : 0xFF8193FF,
+                    focused ? dp(2) : dp(1)));
+        });
+        settingsControl.setOnClickListener(v -> showSystemSettingsMenu());
+        FrameLayout.LayoutParams settingsParams = new FrameLayout.LayoutParams(
+                dp(62), dp(62), Gravity.TOP | Gravity.END);
+        settingsParams.topMargin = dp(22);
+        settingsParams.rightMargin = dp(26);
+        root.addView(settingsControl, settingsParams);
+
         TextView brand = text("SAJI AI", 32, Color.WHITE, true);
         brand.setLetterSpacing(0.15f);
         homeScreen.addView(brand);
@@ -226,6 +254,8 @@ public class MainActivity extends Activity {
         cards.addView(chatgptCard, secondCardParams);
         geminiCard.setNextFocusRightId(chatgptCard.getId());
         chatgptCard.setNextFocusLeftId(geminiCard.getId());
+        settingsControl.setNextFocusDownId(geminiCard.getId());
+        geminiCard.setNextFocusUpId(settingsControl.getId());
 
         TextView footer = text("USE YOUR TV REMOTE TO SELECT",
                 10, 0xFF7784A9, true);
@@ -250,6 +280,93 @@ public class MainActivity extends Activity {
                     .setDuration(260).start();
         }
         geminiCard.requestFocus();
+    }
+
+    private void showSystemSettingsMenu() {
+        String[] options = {
+                "DEVICE SETTINGS",
+                "DEVELOPER OPTIONS",
+                "WEBVIEW INFORMATION"
+        };
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("SAJI AI SETTINGS")
+                .setItems(options, (d, which) -> {
+                    if (which == 0) {
+                        launchSystemSettings(new Intent(Settings.ACTION_SETTINGS),
+                                "Device Settings could not be opened on this TV Box.");
+                    } else if (which == 1) {
+                        launchSystemSettings(
+                                new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS),
+                                "Developer Options are unavailable on this TV Box.");
+                    } else {
+                        showWebViewInformation();
+                    }
+                })
+                .setNegativeButton("CLOSE", null)
+                .create();
+        dialog.setOnShowListener(d -> {
+            if (dialog.getListView() != null) dialog.getListView().requestFocus();
+        });
+        dialog.show();
+    }
+
+    private void launchSystemSettings(Intent intent, String errorMessage) {
+        try {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+        } catch (Throwable error) {
+            Toast.makeText(this, errorMessage, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void showWebViewInformation() {
+        String message;
+        String packageName = null;
+        if (Build.VERSION.SDK_INT >= 26) {
+            try {
+                PackageInfo info = WebView.getCurrentWebViewPackage();
+                if (info != null) {
+                    packageName = info.packageName;
+                    String version = info.versionName == null ? "Unknown" : info.versionName;
+                    message = "Active WebView provider: " + packageName
+                            + "\\nVersion: " + version;
+                } else {
+                    message = "Android did not report an active WebView provider.";
+                }
+            } catch (Throwable error) {
+                message = "WebView provider information is unavailable on this device.";
+            }
+        } else {
+            message = "WebView provider details require Android 8.0 or newer.";
+        }
+
+        final String providerPackage = packageName;
+        AlertDialog infoDialog = new AlertDialog.Builder(this)
+                .setTitle("ANDROID WEBVIEW")
+                .setMessage(message)
+                .setPositiveButton("OPEN APP INFO", (d, which) -> {
+                    if (providerPackage == null || providerPackage.isEmpty()) {
+                        Toast.makeText(this, "WebView app information is unavailable.",
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    try {
+                        Intent appInfo = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.parse("package:" + providerPackage));
+                        startActivity(appInfo);
+                    } catch (Throwable error) {
+                        Toast.makeText(this, "Could not open WebView app information.",
+                                Toast.LENGTH_LONG).show();
+                    }
+                })
+                .setNegativeButton("CLOSE", null)
+                .create();
+        infoDialog.setOnShowListener(d -> {
+            if (infoDialog.getButton(AlertDialog.BUTTON_POSITIVE) != null) {
+                infoDialog.getButton(AlertDialog.BUTTON_POSITIVE).requestFocus();
+            }
+        });
+        infoDialog.show();
     }
 
     private View aiCard(String symbol, String title, String provider,
