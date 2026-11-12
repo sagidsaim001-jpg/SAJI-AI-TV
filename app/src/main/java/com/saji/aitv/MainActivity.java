@@ -58,6 +58,7 @@ public class MainActivity extends Activity {
     private LinearLayout browserRail;
     private LinearLayout backControl;
     private LinearLayout micControl;
+    private LinearLayout whatsappVoiceControl;
     private LinearLayout speakerControl;
     private LinearLayout speakReplyControl;
     private LinearLayout sendControl;
@@ -142,8 +143,9 @@ public class MainActivity extends Activity {
         root.addView(browserRail, railParams);
 
         backControl = railButton(0, "BACK");
-        micControl = railButton(1, "VOICE");
+        micControl = railButton(1, "AI MIC");
         speakerControl = railButton(7, "LIVE");
+        whatsappVoiceControl = railButton(9, "WA MIC");
         speakReplyControl = railButton(8, "SPEAK");
         sendControl = railButton(3, "SEND");
         scrollUpControl = railButton(4, "UP");
@@ -155,7 +157,9 @@ public class MainActivity extends Activity {
         addGap(browserRail, dp(10));
         browserRail.addView(micControl, new LinearLayout.LayoutParams(
                 dp(62), dp(76)));
-        addGap(browserRail, dp(6));
+        addGap(browserRail, dp(5));
+        browserRail.addView(whatsappVoiceControl, new LinearLayout.LayoutParams(dp(62), dp(68)));
+        addGap(browserRail, dp(5));
         browserRail.addView(speakerControl, new LinearLayout.LayoutParams(dp(62), dp(58)));
         addGap(browserRail, dp(4));
         browserRail.addView(speakReplyControl, new LinearLayout.LayoutParams(dp(62), dp(58)));
@@ -177,6 +181,8 @@ public class MainActivity extends Activity {
 
         backControl.setOnClickListener(v -> goBackOrHome());
         micControl.setOnClickListener(v -> requestMicAndActivate());
+        whatsappVoiceControl.setOnClickListener(v -> toggleWhatsAppVoiceRecording());
+        whatsappVoiceControl.setVisibility(View.GONE);
         speakerControl.setOnClickListener(v -> openChatGPTLiveVoice());
         speakReplyControl.setOnClickListener(v -> speakLatestAiReply());
         sendControl.setOnClickListener(v -> sendCurrentMessage());
@@ -186,8 +192,10 @@ public class MainActivity extends Activity {
         mobileModeControl.setOnClickListener(v -> toggleMobileMode());
         backControl.setNextFocusDownId(micControl.getId());
         micControl.setNextFocusUpId(backControl.getId());
-        micControl.setNextFocusDownId(speakerControl.getId());
-        speakerControl.setNextFocusUpId(micControl.getId());
+        micControl.setNextFocusDownId(whatsappVoiceControl.getId());
+        whatsappVoiceControl.setNextFocusUpId(micControl.getId());
+        whatsappVoiceControl.setNextFocusDownId(speakerControl.getId());
+        speakerControl.setNextFocusUpId(whatsappVoiceControl.getId());
         speakerControl.setNextFocusDownId(speakReplyControl.getId());
         speakReplyControl.setNextFocusUpId(speakerControl.getId());
         speakReplyControl.setNextFocusDownId(sendControl.getId());
@@ -517,6 +525,7 @@ public class MainActivity extends Activity {
             webView.setVisibility(View.VISIBLE);
             browserRail.setVisibility(View.VISIBLE);
             activePageUrl = url;
+            whatsappVoiceControl.setVisibility(url.contains("web.whatsapp.com") ? View.VISIBLE : View.GONE);
             configureWebViewForMode();
             webView.loadUrl(url);
             browserRail.setAlpha(0f);
@@ -576,6 +585,9 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 enterImmersive();
+                activePageUrl = url;
+                whatsappVoiceControl.setVisibility(url != null && url.contains("web.whatsapp.com")
+                        ? View.VISIBLE : View.GONE);
                 installMicLifecycleScript(view);
                 super.onPageFinished(view, url);
             }
@@ -815,7 +827,9 @@ public class MainActivity extends Activity {
         item.setFocusableInTouchMode(true);
         item.setClickable(true);
         item.setId(View.generateViewId());
-        item.setBackground(glassButton(false));
+        final int buttonMode = iconMode;
+        item.setBackground((buttonMode == 1 || buttonMode == 7 || buttonMode == 9)
+                ? voiceButtonBackground(buttonMode, false) : glassButton(false));
         item.setElevation(dp(2));
 
         IconView icon = new IconView(this, iconMode);
@@ -834,7 +848,8 @@ public class MainActivity extends Activity {
             v.animate().scaleX(focused ? 1.09f : 1f)
                     .scaleY(focused ? 1.09f : 1f)
                     .setDuration(150).start();
-            v.setBackground(glassButton(focused));
+            v.setBackground((buttonMode == 1 || buttonMode == 7 || buttonMode == 9)
+                    ? voiceButtonBackground(buttonMode, focused) : glassButton(focused));
             v.setElevation(dp(focused ? 12 : 2));
             icon.setFocusedState(focused);
         });
@@ -859,6 +874,19 @@ public class MainActivity extends Activity {
         drawable.setCornerRadius(dp(19));
         drawable.setStroke(focused ? dp(2) : dp(1),
                 focused ? 0xFFE0E7FF : 0x667F9AE0);
+        return drawable;
+    }
+
+
+    private GradientDrawable voiceButtonBackground(int mode, boolean focused) {
+        int accent = mode == 1 ? 0xFF2878E8 : mode == 7 ? 0xFFE2A900 : 0xFFE04452;
+        int deep = mode == 1 ? 0xFF123D83 : mode == 7 ? 0xFF795500 : 0xFF84232D;
+        GradientDrawable drawable = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                focused ? new int[]{accent, deep} : new int[]{
+                        (accent & 0x00FFFFFF) | 0xD9000000,
+                        (deep & 0x00FFFFFF) | 0xE6000000});
+        drawable.setCornerRadius(dp(19));
+        drawable.setStroke(focused ? dp(2) : dp(1), focused ? Color.WHITE : accent);
         return drawable;
     }
 
@@ -1037,6 +1065,48 @@ public class MainActivity extends Activity {
                         Toast.LENGTH_LONG).show();
             } else {
                 Toast.makeText(this, "Send button detect nahi hua. Message box check karo.",
+                        Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+
+    // WhatsApp Web owns the actual voice-message recording UI. This separate
+    // remote button targets only WhatsApp's voice-message control, never AI dictation.
+    private void toggleWhatsAppVoiceRecording() {
+        if (!browserOpen || webView == null || activePageUrl == null
+                || !activePageUrl.contains("web.whatsapp.com")) {
+            Toast.makeText(this, "WhatsApp open karo, phir WA MIC use karo.",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!hasAudioPermission()) {
+            pendingMic = false;
+            if (Build.VERSION.SDK_INT >= 23) {
+                requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
+            }
+            return;
+        }
+        String js = "(function(){try{"
+                + "var nodes=[].slice.call(document.querySelectorAll('button,[role=button]'));"
+                + "var visible=function(b){var r=b.getBoundingClientRect();"
+                + "return r.width>0&&r.height>0&&getComputedStyle(b).visibility!=='hidden'&&!b.disabled;};"
+                + "var label=function(b){return ((b.getAttribute('aria-label')||'')+' '+"
+                + "(b.getAttribute('title')||'')+' '+(b.getAttribute('data-testid')||'')).toLowerCase();};"
+                + "var exact=nodes.filter(function(b){var t=label(b);return visible(b)&&"
+                + "(/voice message|record voice|send voice message|audio message/.test(t))"
+                + "&&!/video|call|search|dictat/.test(t);});"
+                + "if(!exact.length)return 'missing';"
+                + "exact[exact.length-1].click();return 'clicked';"
+                + "}catch(e){return 'error';}})()";
+        webView.evaluateJavascript(js, result -> {
+            if (result != null && result.contains("clicked")) {
+                Toast.makeText(this,
+                        "WhatsApp voice control pressed. Recording stop hone par WhatsApp ka Send button dabao.",
+                        Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this,
+                        "WhatsApp ka voice-message mic detect nahi hua. Chat open karke dobara try karo.",
                         Toast.LENGTH_LONG).show();
             }
         });
@@ -1719,7 +1789,7 @@ public class MainActivity extends Activity {
             paint.setStrokeCap(Paint.Cap.ROUND);
             paint.setStrokeJoin(Paint.Join.ROUND);
 
-            if (iconMode == 1) {
+            if (iconMode == 1 || iconMode == 9) {
                 RectF capsule = new RectF(18, 5, 30, 27);
                 canvas.drawRoundRect(capsule, 6, 6, paint);
                 path.reset();
