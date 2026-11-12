@@ -987,7 +987,7 @@ public class MainActivity extends Activity {
                 + "||((el.className||'')+'').toLowerCase().match(/conversation|chat|scroll/);"
                 + "var score=Math.min(r.width,innerWidth)*Math.min(r.height,innerHeight)"
                 + "+(semantic?500000:0)+(active&&el.contains(active)?200000:0)"
-                + (");"
+                + ";";"
                 + "if(oy==='hidden')score-=100000;"
                 + "if(score>best){best=score;target=el;}}"
                 + "window.__sajiScrollTarget=target;}"
