@@ -69,6 +69,7 @@ public class MainActivity extends Activity {
     private WebView webView;
     private String defaultUserAgent;
     private boolean browserOpen;
+    private boolean railCenterPressed;
     private boolean pendingMic;
     private boolean micActivationPending;
     private PermissionRequest pendingWebPermissionRequest;
@@ -830,13 +831,51 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (event.getKeyCode() == KeyEvent.KEYCODE_BACK
-                && event.getAction() == KeyEvent.ACTION_UP
-                && browserOpen) {
+        int keyCode = event.getKeyCode();
+        int action = event.getAction();
+
+        if (keyCode == KeyEvent.KEYCODE_BACK
+                && action == KeyEvent.ACTION_UP && browserOpen) {
             goBackOrHome();
             return true;
         }
+
+        // Handle TV remote OK ourselves for the native control rail.
+        // Consuming both key phases prevents Android/WebView from requiring
+        // a second OK press or firing the click twice.
+        if (browserOpen
+                && (keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+                    || keyCode == KeyEvent.KEYCODE_ENTER
+                    || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+            View focused = getCurrentFocus();
+            boolean railFocused = isInsideBrowserRail(focused);
+            if (railFocused) {
+                if (action == KeyEvent.ACTION_DOWN) {
+                    if (event.getRepeatCount() == 0) railCenterPressed = true;
+                    return true;
+                }
+                if (action == KeyEvent.ACTION_UP) {
+                    boolean shouldClick = railCenterPressed;
+                    railCenterPressed = false;
+                    if (shouldClick && focused != null && focused.isEnabled()) {
+                        focused.performClick();
+                    }
+                    return true;
+                }
+            }
+        }
         return super.dispatchKeyEvent(event);
+    }
+
+    private boolean isInsideBrowserRail(View view) {
+        if (view == null || browserRail == null) return false;
+        View current = view;
+        while (current != null) {
+            if (current == browserRail) return true;
+            if (!(current.getParent() instanceof View)) break;
+            current = (View) current.getParent();
+        }
+        return false;
     }
 
 
