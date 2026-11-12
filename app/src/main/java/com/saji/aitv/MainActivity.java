@@ -1677,6 +1677,16 @@ public class MainActivity extends Activity {
                 path.moveTo(24, 8);
                 path.lineTo(24, 32);
                 canvas.drawPath(path, paint);
+            } else if (iconMode == 8) {
+                path.reset();
+                path.moveTo(8, 19); path.lineTo(15, 19); path.lineTo(25, 11);
+                path.lineTo(25, 37); path.lineTo(15, 29); path.lineTo(8, 29);
+                path.close();
+                paint.setStyle(Paint.Style.FILL);
+                canvas.drawPath(path, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                canvas.drawArc(new RectF(22, 13, 39, 35), -55, 110, false, paint);
+                canvas.drawArc(new RectF(22, 7, 45, 41), -55, 110, false, paint);
             } else if (iconMode == 7) {
                 canvas.drawArc(new RectF(9, 9, 39, 39), -42, 84, false, paint);
                 canvas.drawArc(new RectF(15, 15, 33, 33), -42, 84, false, paint);
