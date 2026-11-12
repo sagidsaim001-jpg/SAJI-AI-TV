@@ -1509,9 +1509,13 @@ public class MainActivity extends Activity {
     }
 
     private String decodeJsString(String value) {
-        if (value == null || value.equals(\"null\")) return null;
-        try { return new org.json.JSONTokener(value).nextValue().toString(); }
-        catch (Throwable ignored) { return value.replaceAll(\"^\\\\\\\"|\\\\\\\"$\", \"\"); }
+        if (value == null || "null".equals(value)) return null;
+        try {
+            Object decoded = new org.json.JSONTokener(value).nextValue();
+            return decoded == null ? null : decoded.toString();
+        } catch (Throwable ignored) {
+            return value;
+        }
     }
 
     private void speakText(String value) {
@@ -1519,10 +1523,10 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "TV ka Text-to-Speech engine ready nahi hai.", Toast.LENGTH_LONG).show();
             return;
         }
-        String clean = value.replaceAll(\"https?://\\\\S+\", \"\").trim();
+        String clean = value.replaceAll("https?://\\S+", "").trim();
         if (clean.length() > 5000) clean = clean.substring(0, 5000);
         textToSpeech.stop();
-        textToSpeech.speak(clean, TextToSpeech.QUEUE_FLUSH, null, \"saji_ai_reply\");
+        textToSpeech.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "saji_ai_reply");
     }
 
     private void beginAutoSpeakReplyWatch() {
