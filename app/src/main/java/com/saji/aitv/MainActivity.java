@@ -191,7 +191,7 @@ public class MainActivity extends Activity {
         homeScreen.setPadding(dp(24), dp(24), dp(24), dp(24));
         homeScreen.setBackground(new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                new int[]{0xFF111D3C, 0xFF080D1B, 0xFF17112F}));
+                new int[]{0xFF303338, 0xFF17191C, 0xFF25282D}));
         root.addView(homeScreen, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
@@ -241,15 +241,15 @@ public class MainActivity extends Activity {
         int screenWidthDp = (int) (getResources().getDisplayMetrics().widthPixels / density);
         int cardWidthDp = Math.min(330, Math.max(190, (screenWidthDp - 104) / 2 - 16));
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
-                dp(cardWidthDp), dp(184));
+                dp(cardWidthDp), dp(210));
         cardParams.setMargins(dp(8), 0, dp(8), 0);
-        View geminiCard = aiCard("✦", "GEMINI", "Google AI",
+        View geminiCard = aiCard("GEMINI", "GEMINI", "Google AI",
                 0xFF8193FF, GEMINI_URL);
-        View chatgptCard = aiCard("◉", "CHATGPT", "OpenAI",
-                0xFF32CBA5, CHATGPT_URL);
+        View chatgptCard = aiCard("OPENAI", "CHATGPT", "OpenAI",
+                0xFF79D9CF, CHATGPT_URL);
         cards.addView(geminiCard, cardParams);
         LinearLayout.LayoutParams secondCardParams =
-                new LinearLayout.LayoutParams(dp(cardWidthDp), dp(184));
+                new LinearLayout.LayoutParams(dp(cardWidthDp), dp(210));
         secondCardParams.setMargins(dp(8), 0, dp(8), 0);
         cards.addView(chatgptCard, secondCardParams);
         geminiCard.setNextFocusRightId(chatgptCard.getId());
@@ -279,7 +279,7 @@ public class MainActivity extends Activity {
             homeScreen.animate().alpha(1f).translationY(0f)
                     .setDuration(260).start();
         }
-        geminiCard.requestFocus();
+        chatgptCard.requestFocus();
     }
 
     private void showSystemSettingsMenu() {
@@ -380,12 +380,13 @@ public class MainActivity extends Activity {
         card.setId(View.generateViewId());
         card.setPadding(dp(12), dp(12), dp(12), dp(12));
         card.setBackground(cardBackground(false, accent));
+        card.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
 
-        TextView logo = text(symbol, 42, accent, true);
+        View logo = new BrandLogoView(this, "GEMINI".equals(symbol) ? 0 : 1, accent);
         TextView name = text(title, 19, Color.WHITE, true);
         name.setLetterSpacing(0.08f);
         TextView detail = text(provider, 12, 0xFFAAB6D5, false);
-        card.addView(logo);
+        card.addView(logo, new LinearLayout.LayoutParams(dp(104), dp(104)));
         LinearLayout.LayoutParams nameParams =
                 new LinearLayout.LayoutParams(-2, -2);
         nameParams.topMargin = dp(8);
@@ -396,10 +397,10 @@ public class MainActivity extends Activity {
         card.addView(detail, detailParams);
 
         card.setOnFocusChangeListener((v, focused) -> {
-            v.animate().scaleX(focused ? 1.055f : 1f)
-                    .scaleY(focused ? 1.055f : 1f)
-                    .translationY(focused ? -dp(4) : 0)
-                    .setDuration(160).start();
+            v.animate().scaleX(focused ? 1.045f : 1f)
+                    .scaleY(focused ? 1.045f : 1f)
+                    .translationY(focused ? -dp(3) : 0)
+                    .setDuration(210).start();
             v.setBackground(cardBackground(focused, accent));
             v.setElevation(dp(focused ? 12 : 3));
         });
@@ -407,15 +408,87 @@ public class MainActivity extends Activity {
         return card;
     }
 
+    private class BrandLogoView extends View {
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final int kind;
+        private final int accent;
+        private final Path path = new Path();
+
+        BrandLogoView(Activity context, int kind, int accent) {
+            super(context);
+            this.kind = kind;
+            this.accent = accent;
+            setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        }
+
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float side = Math.min(getWidth(), getHeight());
+            float scale = side / 100f;
+            canvas.save();
+            canvas.translate((getWidth() - side) / 2f, (getHeight() - side) / 2f);
+            canvas.scale(scale, scale);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(kind == 0 ? 2.2f : 3.2f);
+            p.setStrokeCap(Paint.Cap.ROUND);
+            p.setStrokeJoin(Paint.Join.ROUND);
+            p.setColor(accent);
+            p.setShadowLayer(12f, 0f, 0f, accent);
+            if (kind == 0) {
+                path.reset();
+                path.moveTo(50, 5);
+                path.lineTo(58, 41);
+                path.lineTo(95, 50);
+                path.lineTo(58, 59);
+                path.lineTo(50, 95);
+                path.lineTo(42, 59);
+                path.lineTo(5, 50);
+                path.lineTo(42, 41);
+                path.close();
+                canvas.drawPath(path, p);
+                p.setShadowLayer(0, 0, 0, Color.TRANSPARENT);
+                p.setColor(0xFFB9C8FF);
+                p.setStrokeWidth(1.2f);
+                canvas.drawLine(50, 5, 50, 95, p);
+                canvas.drawLine(5, 50, 95, 50, p);
+                canvas.drawLine(42, 41, 58, 59, p);
+                canvas.drawLine(58, 41, 42, 59, p);
+            } else {
+                p.setStrokeWidth(3.0f);
+                p.setColor(0xFF8BE2D9);
+                for (int i = 0; i < 6; i++) {
+                    canvas.save();
+                    canvas.rotate(i * 60f, 50, 50);
+                    path.reset();
+                    path.moveTo(50, 17);
+                    path.cubicTo(67, 17, 78, 29, 78, 43);
+                    path.cubicTo(78, 55, 66, 63, 54, 63);
+                    path.cubicTo(41, 63, 31, 54, 31, 43);
+                    canvas.drawPath(path, p);
+                    canvas.restore();
+                }
+                p.setShadowLayer(0, 0, 0, Color.TRANSPARENT);
+                p.setStyle(Paint.Style.FILL);
+                p.setColor(0xFF152D31);
+                canvas.drawCircle(50, 50, 10, p);
+                p.setStyle(Paint.Style.STROKE);
+                p.setColor(0xFFB6F3EC);
+                canvas.drawCircle(50, 50, 10, p);
+            }
+            p.clearShadowLayer();
+            canvas.restore();
+        }
+    }
+
     private GradientDrawable cardBackground(boolean focused, int accent) {
         GradientDrawable drawable = new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
                 focused
-                        ? new int[]{0xFF2B3B64, 0xFF182442}
-                        : new int[]{0xFF202B49, 0xFF151F38});
-        drawable.setCornerRadius(dp(22));
+                        ? new int[]{0xCC62666A, 0xB833363A}
+                        : new int[]{0x99565A5E, 0x882A2D31});
+        drawable.setCornerRadius(dp(34));
         drawable.setStroke(focused ? dp(3) : dp(1),
-                focused ? 0xFFCAD4FF : accent);
+                focused ? 0xFFF1F4FF : 0x667E858C);
         return drawable;
     }
 
