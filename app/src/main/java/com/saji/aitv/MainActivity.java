@@ -298,6 +298,12 @@ public class MainActivity extends Activity {
             homeScreen.animate().alpha(1f).translationY(0f)
                     .setDuration(260).start();
         }
+        // The full-screen home panel is added after the gear button.
+        // Keep the settings control above it so TV remote OK and clicks reach it.
+        settingsControl.bringToFront();
+        settingsControl.setElevation(dp(16));
+        settingsControl.setClickable(true);
+        settingsControl.setFocusable(true);
         geminiCard.requestFocus();
     }
 
