@@ -50,6 +50,7 @@ public class MainActivity extends Activity {
     private static final int REQ_AUDIO = 701;
     private static final String GEMINI_URL = "https://gemini.google.com/app";
     private static final String CHATGPT_URL = "https://chatgpt.com/uc/6af4dba3-8f74-83ea-81b9-d5c12d1f715f";
+    private static final String WHATSAPP_URL = "https://web.whatsapp.com/";
 
     private FrameLayout root;
     private LinearLayout homeScreen;
@@ -66,6 +67,7 @@ public class MainActivity extends Activity {
     private boolean mobileMode;
     private String activePageUrl = GEMINI_URL;
     private WebView webView;
+    private String defaultUserAgent;
     private boolean browserOpen;
     private boolean pendingMic;
     private boolean micActivationPending;
@@ -246,21 +248,29 @@ public class MainActivity extends Activity {
 
         float density = getResources().getDisplayMetrics().density;
         int screenWidthDp = (int) (getResources().getDisplayMetrics().widthPixels / density);
-        int cardWidthDp = Math.min(330, Math.max(190, (screenWidthDp - 104) / 2 - 16));
-        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
-                dp(cardWidthDp), dp(184));
-        cardParams.setMargins(dp(8), 0, dp(8), 0);
+        int cardWidthDp = Math.min(280, Math.max(130, (screenWidthDp - 96) / 3 - 16));
         View geminiCard = aiCard("✦", "GEMINI", "Google AI",
                 0xFF8193FF, GEMINI_URL);
         View chatgptCard = aiCard("◉", "CHATGPT", "OpenAI",
                 0xFF32CBA5, CHATGPT_URL);
-        cards.addView(geminiCard, cardParams);
-        LinearLayout.LayoutParams secondCardParams =
-                new LinearLayout.LayoutParams(dp(cardWidthDp), dp(184));
-        secondCardParams.setMargins(dp(8), 0, dp(8), 0);
-        cards.addView(chatgptCard, secondCardParams);
+        View whatsappCard = aiCard("◉", "WHATSAPP", "WhatsApp Web",
+                0xFF25D366, WHATSAPP_URL);
+        LinearLayout.LayoutParams geminiParams = new LinearLayout.LayoutParams(
+                dp(cardWidthDp), dp(174));
+        geminiParams.setMargins(dp(8), 0, dp(8), 0);
+        LinearLayout.LayoutParams chatgptParams = new LinearLayout.LayoutParams(
+                dp(cardWidthDp), dp(174));
+        chatgptParams.setMargins(dp(8), 0, dp(8), 0);
+        LinearLayout.LayoutParams whatsappParams = new LinearLayout.LayoutParams(
+                dp(cardWidthDp), dp(174));
+        whatsappParams.setMargins(dp(8), 0, dp(8), 0);
+        cards.addView(geminiCard, geminiParams);
+        cards.addView(chatgptCard, chatgptParams);
+        cards.addView(whatsappCard, whatsappParams);
         geminiCard.setNextFocusRightId(chatgptCard.getId());
         chatgptCard.setNextFocusLeftId(geminiCard.getId());
+        chatgptCard.setNextFocusRightId(whatsappCard.getId());
+        whatsappCard.setNextFocusLeftId(chatgptCard.getId());
         settingsControl.setNextFocusDownId(geminiCard.getId());
         geminiCard.setNextFocusUpId(settingsControl.getId());
 
@@ -443,14 +453,10 @@ public class MainActivity extends Activity {
     private void tryActivateChatGPTVoice(int attempt) {
         if (webView == null || !browserOpen || attempt >= 6) return;
         String js = "(function(){try{"
-                + "var selectors=['button[aria-label*="voice" i]','button[title*="voice" i]',"
-                + "'button[data-testid*="voice"]'];"
-                + "for(var s=0;s<selectors.length;s++){var b=document.querySelector(selectors[s]);"
-                + "if(b && b.offsetWidth>0 && b.offsetHeight>0 && !b.disabled){b.click();return 'clicked';}}"
-                + "var bs=[].slice.call(document.querySelectorAll('button'));"
+                + "var bs=Array.prototype.slice.call(document.querySelectorAll('button'));"
                 + "for(var i=0;i<bs.length;i++){var t=((bs[i].getAttribute('aria-label')||'')+' '+"
-                + "(bs[i].getAttribute('title')||'')).toLowerCase();"
-                + "if(t.indexOf('voice')>=0 && bs[i].offsetWidth>0){bs[i].click();return 'clicked';}}"
+                + "(bs[i].getAttribute('title')||'')+' '+(bs[i].getAttribute('data-testid')||'')).toLowerCase();"
+                + "if(t.indexOf('voice')>=0 && bs[i].offsetWidth>0 && !bs[i].disabled){bs[i].click();return 'clicked';}}"
                 + "return 'waiting';}catch(e){return 'error';}})()";
         webView.evaluateJavascript(js, result -> {
             if (result == null || result.contains("waiting")) {
@@ -469,6 +475,7 @@ public class MainActivity extends Activity {
             webView.setVisibility(View.VISIBLE);
             browserRail.setVisibility(View.VISIBLE);
             activePageUrl = url;
+            configureWebViewForMode();
             webView.loadUrl(url);
             browserRail.setAlpha(0f);
             browserRail.animate().alpha(1f).setDuration(220).start();
@@ -503,8 +510,8 @@ public class MainActivity extends Activity {
         settings.setLoadWithOverviewMode(false);
 
         String ua = settings.getUserAgentString();
-        settings.setUserAgentString(ua.replace("; wv", "")
-                .replace("Version/4.0 ", ""));
+        defaultUserAgent = ua.replace("; wv", "").replace("Version/4.0 ", "");
+        settings.setUserAgentString(defaultUserAgent);
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
         if (Build.VERSION.SDK_INT >= 21) {
@@ -608,16 +615,24 @@ public class MainActivity extends Activity {
     private void configureWebViewForMode() {
         if (webView == null) return;
         WebSettings settings = webView.getSettings();
-        String ua = settings.getUserAgentString();
+        String baseUa = defaultUserAgent == null
+                ? settings.getUserAgentString() : defaultUserAgent;
+        if (activePageUrl != null && activePageUrl.contains("web.whatsapp.com")) {
+            // Ask WhatsApp Web for its desktop layout. Compatibility depends on the TV WebView.
+            settings.setUserAgentString("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            settings.setUseWideViewPort(true);
+            settings.setLoadWithOverviewMode(false);
+            return;
+        }
         if (mobileMode) {
-            String mobileUa = ua.replace("Android 13; TV", "Android 13")
+            String mobileUa = baseUa.replace("Android 13; TV", "Android 13")
                     .replace("Android TV", "Android");
             if (!mobileUa.contains("Mobile")) mobileUa = mobileUa.replace(" Safari/", " Mobile Safari/");
             settings.setUserAgentString(mobileUa);
             settings.setUseWideViewPort(false);
             settings.setLoadWithOverviewMode(true);
         } else {
-            String desktopUa = ua.replace(" Mobile Safari/", " Safari/")
+            String desktopUa = baseUa.replace(" Mobile Safari/", " Safari/")
                     .replace("Android 13; Mobile", "Android 13");
             settings.setUserAgentString(desktopUa);
             settings.setUseWideViewPort(true);
