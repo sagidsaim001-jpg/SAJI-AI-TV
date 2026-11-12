@@ -9,10 +9,12 @@ import android.content.Intent;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.RecognitionListener;
+import android.speech.tts.TextToSpeech;
 import android.os.Handler;
 import android.os.Looper;
 import org.json.JSONObject;
 import java.util.ArrayList;
+import java.util.Locale;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -58,6 +60,7 @@ public class MainActivity extends Activity {
     private LinearLayout backControl;
     private LinearLayout micControl;
     private LinearLayout speakerControl;
+    private LinearLayout speakReplyControl;
     private LinearLayout sendControl;
     private LinearLayout scrollUpControl;
     private LinearLayout scrollDownControl;
@@ -79,6 +82,12 @@ public class MainActivity extends Activity {
     private String pendingWebsiteSettingKey;
     private SpeechRecognizer speechRecognizer;
     private boolean nativeSpeechListening;
+    private TextToSpeech textToSpeech;
+    private boolean ttsReady;
+    private boolean autoSpeakAfterVoice;
+    private final Handler replyHandler = new Handler(Looper.getMainLooper());
+    private String lastPolledReply = "";
+    private int stableReplyPolls;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -86,6 +95,16 @@ public class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         enterImmersive();
         buildShell();
+        textToSpeech = new TextToSpeech(this, status -> {
+            ttsReady = status == TextToSpeech.SUCCESS;
+            if (ttsReady) {
+                int result = textToSpeech.setLanguage(new Locale("ur", "PK"));
+                if (result == TextToSpeech.LANG_MISSING_DATA
+                        || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    textToSpeech.setLanguage(Locale.getDefault());
+                }
+            }
+        });
         showHome(null, false);
     }
 
@@ -136,6 +155,7 @@ public class MainActivity extends Activity {
         backControl = railButton(0, "BACK");
         micControl = railButton(1, "VOICE");
         speakerControl = railButton(7, "LIVE");
+        speakReplyControl = railButton(8, "SPEAK");
         sendControl = railButton(3, "SEND");
         scrollUpControl = railButton(4, "UP");
         scrollDownControl = railButton(5, "DOWN");
@@ -147,8 +167,10 @@ public class MainActivity extends Activity {
         browserRail.addView(micControl, new LinearLayout.LayoutParams(
                 dp(62), dp(76)));
         addGap(browserRail, dp(6));
-        browserRail.addView(speakerControl, new LinearLayout.LayoutParams(dp(62), dp(66)));
-        addGap(browserRail, dp(8));
+        browserRail.addView(speakerControl, new LinearLayout.LayoutParams(dp(62), dp(58)));
+        addGap(browserRail, dp(4));
+        browserRail.addView(speakReplyControl, new LinearLayout.LayoutParams(dp(62), dp(58)));
+        addGap(browserRail, dp(5));
         browserRail.addView(sendControl, new LinearLayout.LayoutParams(
                 dp(62), dp(70)));
         addGap(browserRail, dp(6));
@@ -167,6 +189,7 @@ public class MainActivity extends Activity {
         backControl.setOnClickListener(v -> goBackOrHome());
         micControl.setOnClickListener(v -> requestMicAndActivate());
         speakerControl.setOnClickListener(v -> openChatGPTLiveVoice());
+        speakReplyControl.setOnClickListener(v -> speakLatestAiReply());
         sendControl.setOnClickListener(v -> sendCurrentMessage());
         scrollUpControl.setOnClickListener(v -> scrollAiScreen(-1));
         scrollDownControl.setOnClickListener(v -> scrollAiScreen(1));
@@ -176,8 +199,10 @@ public class MainActivity extends Activity {
         micControl.setNextFocusUpId(backControl.getId());
         micControl.setNextFocusDownId(speakerControl.getId());
         speakerControl.setNextFocusUpId(micControl.getId());
-        speakerControl.setNextFocusDownId(sendControl.getId());
-        sendControl.setNextFocusUpId(speakerControl.getId());
+        speakerControl.setNextFocusDownId(speakReplyControl.getId());
+        speakReplyControl.setNextFocusUpId(speakerControl.getId());
+        speakReplyControl.setNextFocusDownId(sendControl.getId());
+        sendControl.setNextFocusUpId(speakReplyControl.getId());
         sendControl.setNextFocusDownId(scrollUpControl.getId());
         scrollUpControl.setNextFocusUpId(sendControl.getId());
         scrollUpControl.setNextFocusDownId(scrollDownControl.getId());
@@ -976,6 +1001,10 @@ public class MainActivity extends Activity {
             if (result != null && (result.contains("sent") || result.contains("submitted"))) {
                 Toast.makeText(this, "Message AI ko send kar diya.",
                         Toast.LENGTH_SHORT).show();
+                if (autoSpeakAfterVoice) {
+                    autoSpeakAfterVoice = false;
+                    beginAutoSpeakReplyWatch();
+                }
             } else if (result != null && result.contains("empty")) {
                 Toast.makeText(this, "Pehle message box mein text likho ya voice se bolo.",
                         Toast.LENGTH_LONG).show();
@@ -1007,6 +1036,7 @@ public class MainActivity extends Activity {
     // its own audio stream. The recognized words are inserted into its composer.
     private void startNativeSpeechInput() {
         if (webView == null || !browserOpen) return;
+        autoSpeakAfterVoice = true;
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             Toast.makeText(this,
                     "Is TV par Android Speech Recognition service available nahi hai.",
@@ -1056,6 +1086,7 @@ public class MainActivity extends Activity {
                                 "Koi text recognize nahi hua. Dobara bolo.",
                                 Toast.LENGTH_LONG).show();
                     } else {
+                        autoSpeakAfterVoice = true;
                         insertTranscriptIntoComposer(transcript.trim());
                     }
                 }
@@ -1446,6 +1477,77 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void speakLatestAiReply() {
+        if (webView == null || !browserOpen) return;
+        String script = latestReplyScript(false);
+        webView.evaluateJavascript(script, result -> {
+            String reply = decodeJsString(result);
+            if (reply == null || reply.trim().isEmpty() || "missing".equals(reply)) {
+                Toast.makeText(this, "Latest AI reply detect nahi hua. Reply screen par load hone do.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            speakText(reply);
+        });
+    }
+
+    private String latestReplyScript(boolean baseline) {
+        return "(function(){try{"
+                + "var host=(location.hostname||'').toLowerCase();var nodes=[];"
+                + "if(host==='chatgpt.com'||host==='chat.openai.com'){"
+                + "nodes=[].slice.call(document.querySelectorAll('[data-message-author-role=assistant]'));}"
+                + "else if(host==='gemini.google.com'){"
+                + "nodes=[].slice.call(document.querySelectorAll('model-response,.message-content,[data-message-id]'));}"
+                + "var texts=nodes.map(function(n){return (n.innerText||n.textContent||'').trim();})"
+                + ".filter(function(t){return t.length>0;});"
+                + "var t=texts.length?texts[texts.length-1]:'';"
+                + (baseline ? "window.__sajiReplyBeforeSend=t;" : "")
+                + "return t||'missing';}catch(e){return 'missing';}})()";
+    }
+
+    private String decodeJsString(String value) {
+        if (value == null || value.equals(\"null\")) return null;
+        try { return new org.json.JSONTokener(value).nextValue().toString(); }
+        catch (Throwable ignored) { return value.replaceAll(\"^\\\\\\\"|\\\\\\\"$\", \"\"); }
+    }
+
+    private void speakText(String value) {
+        if (textToSpeech == null || !ttsReady) {
+            Toast.makeText(this, "TV ka Text-to-Speech engine ready nahi hai.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        String clean = value.replaceAll(\"https?://\\\\S+\", \"\").trim();
+        if (clean.length() > 5000) clean = clean.substring(0, 5000);
+        textToSpeech.stop();
+        textToSpeech.speak(clean, TextToSpeech.QUEUE_FLUSH, null, \"saji_ai_reply\");
+    }
+
+    private void beginAutoSpeakReplyWatch() {
+        if (webView == null) return;
+        webView.evaluateJavascript(latestReplyScript(true), baseline -> {
+            lastPolledReply = decodeJsString(baseline);
+            if (lastPolledReply == null) lastPolledReply = \"\";
+            stableReplyPolls = 0;
+            pollForNewAiReply(0);
+        });
+    }
+
+    private void pollForNewAiReply(int attempt) {
+        if (!browserOpen || webView == null || attempt >= 60) {
+            if (attempt >= 60) Toast.makeText(this, "AI reply abhi detect nahi hua. SPEAK button se dobara try karo.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        webView.evaluateJavascript(latestReplyScript(false), result -> {
+            String current = decodeJsString(result);
+            if (current != null && !current.isEmpty() && !\"missing\".equals(current)
+                    && !current.equals(lastPolledReply)) {
+                stableReplyPolls = current.equals(lastPolledReply) ? stableReplyPolls + 1 : 0;
+                lastPolledReply = current;
+                if (stableReplyPolls >= 2) { speakText(current); return; }
+            }
+            replyHandler.postDelayed(() -> pollForNewAiReply(attempt + 1), 1800);
+        });
+    }
+
     private void stopWebViewMic() {
         try {
             if (webView != null) {
@@ -1669,6 +1771,11 @@ public class MainActivity extends Activity {
                 webView = null;
             }
         } catch (Throwable ignored) {
+        }
+        replyHandler.removeCallbacksAndMessages(null);
+        if (textToSpeech != null) {
+            try { textToSpeech.stop(); textToSpeech.shutdown(); } catch (Throwable ignored) {}
+            textToSpeech = null;
         }
         super.onDestroy();
     }
