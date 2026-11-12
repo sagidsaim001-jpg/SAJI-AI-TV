@@ -774,26 +774,33 @@ public class MainActivity extends Activity {
         item.setClickable(true);
         item.setId(View.generateViewId());
         item.setBackground(glassButton(false));
-        item.setElevation(dp(2));
+        item.setElevation(dp(3));
+        item.setClipToPadding(false);
+        item.setClipChildren(false);
 
         IconView icon = new IconView(this, iconMode);
         LinearLayout.LayoutParams iconParams =
-                new LinearLayout.LayoutParams(dp(30), dp(30));
+                new LinearLayout.LayoutParams(dp(38), dp(38));
         item.addView(icon, iconParams);
 
-        TextView caption = text(label, 8, 0xFFD5DDF6, true);
-        caption.setLetterSpacing(0.11f);
+        TextView caption = text(label, 8, 0xFFE8EDF5, true);
+        caption.setLetterSpacing(0.12f);
         LinearLayout.LayoutParams cap =
                 new LinearLayout.LayoutParams(-2, -2);
         cap.topMargin = dp(7);
         item.addView(caption, cap);
 
         item.setOnFocusChangeListener((v, focused) -> {
-            v.animate().scaleX(focused ? 1.09f : 1f)
-                    .scaleY(focused ? 1.09f : 1f)
-                    .setDuration(150).start();
+            v.animate().cancel();
+            v.animate().scaleX(focused ? 1.10f : 1f)
+                    .scaleY(focused ? 1.10f : 1f)
+                    .translationZ(dp(focused ? 10 : 0))
+                    .setDuration(190)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                    .start();
             v.setBackground(glassButton(focused));
-            v.setElevation(dp(focused ? 12 : 2));
+            v.setElevation(dp(focused ? 15 : 3));
+            caption.setTextColor(focused ? Color.WHITE : 0xFFE8EDF5);
             icon.setFocusedState(focused);
         });
         return item;
@@ -802,9 +809,9 @@ public class MainActivity extends Activity {
     private GradientDrawable glassPanel(boolean focused) {
         GradientDrawable drawable = new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                new int[]{0xE52B3B5C, 0xE811192E});
-        drawable.setCornerRadius(dp(26));
-        drawable.setStroke(dp(1), focused ? 0xFF92A9FF : 0x556F82BA);
+                new int[]{0xE6AAB4C2, 0xE64B5664, 0xE61B222D});
+        drawable.setCornerRadius(dp(30));
+        drawable.setStroke(dp(1), focused ? 0xFFF4FAFF : 0x887E8998);
         return drawable;
     }
 
@@ -812,11 +819,12 @@ public class MainActivity extends Activity {
         GradientDrawable drawable = new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
                 focused
-                        ? new int[]{0xFF526A9C, 0xFF26395F}
-                        : new int[]{0xD9364A72, 0xD91A2946});
-        drawable.setCornerRadius(dp(19));
+                        ? new int[]{0xFFE7EDF5, 0xFF8795A8, 0xFF344253}
+                        : new int[]{0xCC9AA7B7, 0xAA4D5968, 0xDD171F2A});
+        drawable.setCornerRadius(dp(23));
         drawable.setStroke(focused ? dp(2) : dp(1),
-                focused ? 0xFFE0E7FF : 0x667F9AE0);
+                focused ? 0xFFFFFFFF : 0x99D2DFED);
+        drawable.setGradientType(GradientDrawable.LINEAR_GRADIENT);
         return drawable;
     }
 
@@ -1454,11 +1462,13 @@ public class MainActivity extends Activity {
                     (getHeight() - 48f * scale) / 2f);
             canvas.scale(scale, scale);
 
-            paint.setColor(focused ? Color.WHITE : 0xFFE8EEFF);
+            paint.setColor(focused ? Color.WHITE : 0xFFE7EEF6);
             paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(3.1f);
+            paint.setStrokeWidth(focused ? 3.8f : 3.1f);
             paint.setStrokeCap(Paint.Cap.ROUND);
             paint.setStrokeJoin(Paint.Join.ROUND);
+            paint.setShadowLayer(focused ? 13f : 5f, 0f, 0f,
+                    focused ? 0xFFEAF7FF : 0x778DA8C8);
 
             if (iconMode == 1) {
                 RectF capsule = new RectF(18, 5, 30, 27);
@@ -1518,6 +1528,13 @@ public class MainActivity extends Activity {
                 canvas.drawCircle(28, 24, 2.5f, paint);
                 canvas.drawCircle(23, 30, 2.5f, paint);
             }
+            if (focused) {
+                paint.setShadowLayer(0, 0, 0, Color.TRANSPARENT);
+                paint.setColor(0xFFF8FCFF);
+                paint.setStrokeWidth(1.15f);
+                canvas.drawLine(8, 5, 40, 5, paint);
+            }
+            paint.clearShadowLayer();
             canvas.restore();
         }
     }
