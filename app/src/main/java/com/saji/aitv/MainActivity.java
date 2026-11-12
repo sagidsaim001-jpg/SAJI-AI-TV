@@ -81,6 +81,7 @@ public class MainActivity extends Activity {
     private String pendingWebsiteSettingKey;
     private SpeechRecognizer speechRecognizer;
     private boolean nativeSpeechListening;
+    private Runnable speechTimeoutRunnable;
     private boolean autoSpeakAfterVoice;
     private final Handler replyHandler = new Handler(Looper.getMainLooper());
     private String lastPolledReply = "";
@@ -475,17 +476,34 @@ public class MainActivity extends Activity {
     }
 
     private void tryActivateChatGPTVoice(int attempt) {
-        if (webView == null || !browserOpen || attempt >= 6) return;
+        if (webView == null || !browserOpen || attempt >= 7) {
+            Toast.makeText(this,
+                    "ChatGPT ka Live Voice button is WebView mein detect nahi hua. Page reload karke dobara try karo.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        // Prefer the actual Voice Mode control. Do not accidentally click the
+        // small dictation microphone beside the message composer.
         String js = "(function(){try{"
-                + "var bs=Array.prototype.slice.call(document.querySelectorAll('button'));"
-                + "for(var i=0;i<bs.length;i++){var t=((bs[i].getAttribute('aria-label')||'')+' '+"
-                + "(bs[i].getAttribute('title')||'')+' '+(bs[i].getAttribute('data-testid')||'')).toLowerCase();"
-                + "if(t.indexOf('voice')>=0 && bs[i].offsetWidth>0 && !bs[i].disabled){bs[i].click();return 'clicked';}}"
-                + "return 'waiting';}catch(e){return 'error';}})()";
+                + "var bs=[].slice.call(document.querySelectorAll('button,[role=button]'));"
+                + "var visible=function(b){var r=b.getBoundingClientRect();"
+                + "return r.width>0&&r.height>0&&getComputedStyle(b).visibility!=='hidden'&&!b.disabled;};"
+                + "var label=function(b){return ((b.getAttribute('aria-label')||'')+' '+"
+                + "(b.getAttribute('title')||'')+' '+(b.getAttribute('data-testid')||'')).toLowerCase();};"
+                + "var candidates=bs.filter(function(b){var s=label(b);"
+                + "return visible(b)&&(/voice.mode|start.voice|voice.conversation|voice-mode/.test(s))"
+                + "&&!/dictat|microphone|\\bmic\\b|record/.test(s);});"
+                + "if(!candidates.length)return 'waiting';"
+                + "candidates[candidates.length-1].click();return 'clicked';"
+                + "}catch(e){return 'error';}})()";
         webView.evaluateJavascript(js, result -> {
-            if (result == null || result.contains("waiting")) {
-                new Handler(Looper.getMainLooper()).postDelayed(
-                        () -> tryActivateChatGPTVoice(attempt + 1), 1200);
+            if (result != null && result.contains("clicked")) return;
+            if (attempt < 6) {
+                replyHandler.postDelayed(() -> tryActivateChatGPTVoice(attempt + 1), 900);
+            } else {
+                Toast.makeText(this,
+                        "Live Voice control nahi mila. ChatGPT page par orange Voice icon manually try karo.",
+                        Toast.LENGTH_LONG).show();
             }
         });
     }
@@ -644,6 +662,21 @@ public class MainActivity extends Activity {
         if (activePageUrl != null && activePageUrl.contains("web.whatsapp.com")) {
             // Ask WhatsApp Web for its desktop layout. Compatibility depends on the TV WebView.
             settings.setUserAgentString("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            settings.setUseWideViewPort(true);
+            settings.setLoadWithOverviewMode(false);
+            return;
+        }
+        if (activePageUrl != null && (activePageUrl.contains("chatgpt.com")
+                || activePageUrl.contains("gemini.google.com"))) {
+            // Keep the TV layout but identify as a mobile-capable browser for
+            // modern responsive voice controls. Avoid the heavier desktop-only page variant.
+            String mobileCapableUa = baseUa.replace("; wv", "")
+                    .replace("Android 13; TV", "Android 13")
+                    .replace("Android TV", "Android");
+            if (!mobileCapableUa.contains("Mobile")) {
+                mobileCapableUa = mobileCapableUa.replace(" Safari/", " Mobile Safari/");
+            }
+            settings.setUserAgentString(mobileCapableUa);
             settings.setUseWideViewPort(true);
             settings.setLoadWithOverviewMode(false);
             return;
@@ -1027,10 +1060,10 @@ public class MainActivity extends Activity {
     // its own audio stream. The recognized words are inserted into its composer.
     private void startNativeSpeechInput() {
         if (webView == null || !browserOpen) return;
-        autoSpeakAfterVoice = true;
+        autoSpeakAfterVoice = false;
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             Toast.makeText(this,
-                    "Is TV par Android Speech Recognition service available nahi hai.",
+                    "TV par speech recognition service available nahi hai. Google Speech Services check karo.",
                     Toast.LENGTH_LONG).show();
             return;
         }
@@ -1040,28 +1073,35 @@ public class MainActivity extends Activity {
             speechRecognizer.setRecognitionListener(new RecognitionListener() {
                 @Override public void onReadyForSpeech(Bundle params) {
                     nativeSpeechListening = true;
-                    Toast.makeText(MainActivity.this, "Listening... bolo ab.",
+                    scheduleSpeechTimeout(22000, "Mic sun raha tha lekin speech complete nahi hui. Dobara try karo.");
+                    Toast.makeText(MainActivity.this, "Listening... ab bolo.",
                             Toast.LENGTH_SHORT).show();
                 }
-                @Override public void onBeginningOfSpeech() {}
+                @Override public void onBeginningOfSpeech() {
+                    scheduleSpeechTimeout(25000, "Voice recognition timeout. Dobara try karo.");
+                }
                 @Override public void onRmsChanged(float rmsdB) {}
                 @Override public void onBufferReceived(byte[] buffer) {}
                 @Override public void onEndOfSpeech() {
                     nativeSpeechListening = false;
-                    Toast.makeText(MainActivity.this, "Transcribing...",
+                    scheduleSpeechTimeout(14000, "Speech text mein convert nahi hui. Network ya Speech Services check karo.");
+                    Toast.makeText(MainActivity.this, "Awaaz mil gayi, text ban raha hai...",
                             Toast.LENGTH_SHORT).show();
                 }
                 @Override public void onError(int error) {
                     nativeSpeechListening = false;
                     stopNativeSpeechInput();
+                    autoSpeakAfterVoice = false;
                     String message = error == SpeechRecognizer.ERROR_NO_MATCH
-                            ? "Awaaz samajh nahi aayi. Dobara try karo."
+                            ? "Awaaz clear nahi mili. Mic ke paas bolkar dobara try karo."
                             : error == SpeechRecognizer.ERROR_NETWORK
                             || error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT
-                            ? "Speech service ka network issue hai."
+                            ? "Speech service ka network slow ya unavailable hai."
                             : error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
-                            ? "Android microphone permission check karo."
-                            : "Voice recognition fail hui. Speech service check karo.";
+                            ? "Android microphone permission allow karo."
+                            : error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
+                            ? "Speech service busy hai. 2 second baad try karo."
+                            : "Speech recognition ruk gayi. TV ki Speech Services check karo.";
                     Toast.makeText(MainActivity.this, message,
                             Toast.LENGTH_LONG).show();
                 }
@@ -1073,6 +1113,7 @@ public class MainActivity extends Activity {
                             ? "" : matches.get(0);
                     stopNativeSpeechInput();
                     if (transcript.trim().isEmpty()) {
+                        autoSpeakAfterVoice = false;
                         Toast.makeText(MainActivity.this,
                                 "Koi text recognize nahi hua. Dobara bolo.",
                                 Toast.LENGTH_LONG).show();
@@ -1090,15 +1131,30 @@ public class MainActivity extends Activity {
                     RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ur-PK");
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ur-PK");
-            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
+            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
             intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
+            intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false);
+            scheduleSpeechTimeout(15000, "Mic start nahi hua. TV ki Speech Services ya microphone permission check karo.");
             speechRecognizer.startListening(intent);
         } catch (Throwable error) {
             stopNativeSpeechInput();
+            autoSpeakAfterVoice = false;
             Toast.makeText(this,
-                    "Native voice service start nahi ho saki. TV par Google Speech Services check karo.",
+                    "Speech service start nahi hui. TV par Google Speech Services check karo.",
                     Toast.LENGTH_LONG).show();
         }
+    }
+
+    private void scheduleSpeechTimeout(long delayMs, String message) {
+        if (speechTimeoutRunnable != null) replyHandler.removeCallbacks(speechTimeoutRunnable);
+        speechTimeoutRunnable = () -> {
+            if (speechRecognizer != null) {
+                stopNativeSpeechInput();
+                autoSpeakAfterVoice = false;
+                Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
+            }
+        };
+        replyHandler.postDelayed(speechTimeoutRunnable, delayMs);
     }
 
     private void insertTranscriptIntoComposer(String transcript) {
@@ -1153,6 +1209,10 @@ public class MainActivity extends Activity {
 
     private void stopNativeSpeechInput() {
         nativeSpeechListening = false;
+        if (speechTimeoutRunnable != null) {
+            replyHandler.removeCallbacks(speechTimeoutRunnable);
+            speechTimeoutRunnable = null;
+        }
         SpeechRecognizer recognizer = speechRecognizer;
         speechRecognizer = null;
         if (recognizer != null) {
