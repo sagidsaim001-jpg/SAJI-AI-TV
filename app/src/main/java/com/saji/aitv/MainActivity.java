@@ -22,6 +22,11 @@ import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.media.AudioManager;
+import android.media.AudioRecord;
+import android.media.AudioFormat;
+import android.media.AudioDeviceInfo;
+import android.media.MediaRecorder;
 import android.net.http.SslError;
 import android.os.Build;
 import android.os.Bundle;
@@ -84,6 +89,11 @@ public class MainActivity extends Activity {
     private boolean nativeSpeechListening;
     private Runnable speechTimeoutRunnable;
     private boolean autoSpeakAfterVoice;
+    private AudioManager audioManager;
+    private int previousAudioMode = AudioManager.MODE_NORMAL;
+    private boolean whatsappAudioSessionActive;
+    private boolean whatsappRecordingTogglePending;
+    private boolean pendingMicTest;
     private final Handler replyHandler = new Handler(Looper.getMainLooper());
     private String lastPolledReply = "";
     private String candidateReply = "";
@@ -213,6 +223,7 @@ public class MainActivity extends Activity {
 
     private void showHome(String message, boolean animate) {
         stopWebViewMic();
+        releaseWhatsAppAudioSession();
         browserOpen = false;
         if (webView != null) webView.setVisibility(View.GONE);
         browserRail.setVisibility(View.GONE);
@@ -334,7 +345,8 @@ public class MainActivity extends Activity {
                 "DEVICE SETTINGS",
                 "DEVELOPER OPTIONS",
                 "WEBVIEW INFORMATION",
-                "MICROPHONE PERMISSIONS"
+                "MICROPHONE PERMISSIONS",
+                "TEST MICROPHONE INPUT"
         };
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("SAJI AI SETTINGS")
@@ -348,8 +360,10 @@ public class MainActivity extends Activity {
                                 "Developer Options are unavailable on this TV Box.");
                     } else if (which == 2) {
                         showWebViewInformation();
-                    } else {
+                    } else if (which == 3) {
                         showMicrophonePermissionSettings();
+                    } else {
+                        testNativeMicrophoneInput();
                     }
                 })
                 .setNegativeButton("CLOSE", null)
@@ -518,6 +532,10 @@ public class MainActivity extends Activity {
 
     private void openBrowser(String url) {
         try {
+            if (activePageUrl != null && activePageUrl.contains("web.whatsapp.com")
+                    && (url == null || !url.contains("web.whatsapp.com"))) {
+                releaseWhatsAppAudioSession();
+            }
             stopWebViewMic();
             ensureWebView();
             if (homeScreen != null) homeScreen.setVisibility(View.GONE);
@@ -1086,15 +1104,22 @@ public class MainActivity extends Activity {
             return;
         }
 
-        // SpeechRecognizer and WhatsApp WebRTC must never compete for the TV's
-        // microphone. Release native dictation completely before starting or
-        // stopping a WhatsApp voice note.
+        // Release native dictation, then put Android in communication mode so
+        // Chromium/WebRTC can use the active communication audio route.
         stopNativeSpeechInput();
         autoSpeakAfterVoice = false;
+        if (whatsappRecordingTogglePending) return;
+        whatsappRecordingTogglePending = true;
+        final boolean wasRecording = whatsappAudioSessionActive;
+        if (!wasRecording) beginWhatsAppAudioSession();
         final WebView target = webView;
         target.postDelayed(() -> {
             if (target != webView || !browserOpen || activePageUrl == null
-                    || !activePageUrl.contains("web.whatsapp.com")) return;
+                    || !activePageUrl.contains("web.whatsapp.com")) {
+                whatsappRecordingTogglePending = false;
+                if (!wasRecording) releaseWhatsAppAudioSession();
+                return;
+            }
             String js = "(function(){try{"
                     + "var nodes=[].slice.call(document.querySelectorAll('button,[role=button]'));"
                     + "var visible=function(b){var r=b.getBoundingClientRect();"
@@ -1108,11 +1133,20 @@ public class MainActivity extends Activity {
                     + "exact[exact.length-1].click();return 'clicked';"
                     + "}catch(e){return 'error';}})()";
             target.evaluateJavascript(js, result -> {
+                whatsappRecordingTogglePending = false;
                 if (result != null && result.contains("clicked")) {
-                    Toast.makeText(this,
-                            "WhatsApp voice control pressed. Recording stop hone par WhatsApp ka Send button dabao.",
-                            Toast.LENGTH_LONG).show();
+                    if (wasRecording) {
+                        // Give WhatsApp time to stop and finalize its MediaRecorder
+                        // before returning Android to its previous audio mode.
+                        target.postDelayed(this::releaseWhatsAppAudioSession, 900);
+                        Toast.makeText(this, "WhatsApp recording stopped. Ab Send dabao.",
+                                Toast.LENGTH_LONG).show();
+                    } else {
+                        Toast.makeText(this, "WhatsApp recording started. Bol kar dobara WA MIC dabao to stop karo.",
+                                Toast.LENGTH_LONG).show();
+                    }
                 } else {
+                    if (!wasRecording) releaseWhatsAppAudioSession();
                     Toast.makeText(this,
                             "WhatsApp ka voice-message mic detect nahi hua. Chat open karke dobara try karo.",
                             Toast.LENGTH_LONG).show();
@@ -1306,6 +1340,152 @@ public class MainActivity extends Activity {
                 == PackageManager.PERMISSION_GRANTED;
     }
 
+    private AudioManager getSystemAudioManager() {
+        if (audioManager == null) {
+            audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
+        }
+        return audioManager;
+    }
+
+    private void beginWhatsAppAudioSession() {
+        try {
+            AudioManager manager = getSystemAudioManager();
+            if (manager == null) return;
+            if (!whatsappAudioSessionActive) {
+                previousAudioMode = manager.getMode();
+                manager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                whatsappAudioSessionActive = true;
+            }
+        } catch (Throwable error) {
+            Toast.makeText(this, "Android communication audio mode could not be enabled.",
+                    Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void releaseWhatsAppAudioSession() {
+        try {
+            if (!whatsappAudioSessionActive) return;
+            AudioManager manager = getSystemAudioManager();
+            if (manager != null) manager.setMode(previousAudioMode);
+        } catch (Throwable ignored) {
+        } finally {
+            whatsappAudioSessionActive = false;
+            whatsappRecordingTogglePending = false;
+        }
+    }
+
+    private void testNativeMicrophoneInput() {
+        if (!hasAudioPermission()) {
+            pendingMicTest = true;
+            if (Build.VERSION.SDK_INT >= 23) {
+                requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
+            }
+            return;
+        }
+
+        final String inputDevices = describeAudioInputDevices();
+        Toast.makeText(this, "Mic test: ab remote ke paas bol kar dekho (4 seconds).",
+                Toast.LENGTH_LONG).show();
+
+        new Thread(() -> {
+            AudioRecord recorder = null;
+            int peak = 0;
+            double sumSquares = 0;
+            long sampleCount = 0;
+            String errorMessage = null;
+            try {
+                int sampleRate = 16000;
+                int minBytes = AudioRecord.getMinBufferSize(sampleRate,
+                        AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+                if (minBytes <= 0) {
+                    throw new IllegalStateException("TV audio input format is unavailable.");
+                }
+                int bufferSamples = Math.max(1024, minBytes / 2);
+                recorder = new AudioRecord(MediaRecorder.AudioSource.MIC,
+                        sampleRate, AudioFormat.CHANNEL_IN_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT, bufferSamples * 2);
+                if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
+                    throw new IllegalStateException("Android could not initialize the microphone.");
+                }
+                recorder.startRecording();
+                long stopAt = System.currentTimeMillis() + 4000;
+                short[] samples = new short[bufferSamples];
+                while (System.currentTimeMillis() < stopAt) {
+                    int read = recorder.read(samples, 0, samples.length);
+                    if (read > 0) {
+                        for (int i = 0; i < read; i++) {
+                            int value = Math.abs((int) samples[i]);
+                            if (value > peak) peak = value;
+                            sumSquares += (double) value * value;
+                        }
+                        sampleCount += read;
+                    } else if (read < 0) {
+                        throw new IllegalStateException("Audio input read failed: " + read);
+                    }
+                }
+            } catch (Throwable error) {
+                errorMessage = error.getMessage() == null
+                        ? error.getClass().getSimpleName() : error.getMessage();
+            } finally {
+                if (recorder != null) {
+                    try {
+                        if (recorder.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
+                            recorder.stop();
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                    try { recorder.release(); } catch (Throwable ignored) {}
+                }
+            }
+
+            final int resultPeak = peak;
+            final double rms = sampleCount == 0 ? 0
+                    : Math.sqrt(sumSquares / sampleCount);
+            final String resultError = errorMessage;
+            runOnUiThread(() -> {
+                String message;
+                if (resultError != null) {
+                    message = "Microphone test could not start.\n"
+                            + resultError + "\n\nInput devices:\n" + inputDevices;
+                } else if (resultPeak > 450 || rms > 120) {
+                    message = "Audio signal detected.\nPeak level: " + resultPeak
+                            + "\nAverage level: " + Math.round(rms)
+                            + "\n\nInput devices:\n" + inputDevices
+                            + "\n\nAndroid app ko microphone audio mil rahi hai.";
+                } else {
+                    message = "No clear microphone signal detected.\nPeak level: "
+                            + resultPeak + "\nAverage level: " + Math.round(rms)
+                            + "\n\nInput devices:\n" + inputDevices
+                            + "\n\nAssistant ka voice input chalna aur app ko raw mic audio milna alag ho sakta hai.";
+                }
+                new AlertDialog.Builder(this)
+                        .setTitle("MICROPHONE INPUT TEST")
+                        .setMessage(message)
+                        .setPositiveButton("OK", null)
+                        .show();
+            });
+        }, "SAJI-Mic-Input-Test").start();
+    }
+
+    private String describeAudioInputDevices() {
+        try {
+            AudioManager manager = getSystemAudioManager();
+            if (manager == null) return "AudioManager unavailable";
+            AudioDeviceInfo[] devices = manager.getDevices(AudioManager.GET_DEVICES_INPUTS);
+            if (devices == null || devices.length == 0) return "No input device listed by Android";
+            StringBuilder names = new StringBuilder();
+            for (AudioDeviceInfo device : devices) {
+                if (names.length() > 0) names.append("\n");
+                CharSequence productName = device.getProductName();
+                names.append(productName == null ? "Unknown input" : productName)
+                        .append(" (type ").append(device.getType()).append(")");
+            }
+            return names.toString();
+        } catch (Throwable error) {
+            return "Input device list unavailable";
+        }
+    }
+
     @Override
     public void onRequestPermissionsResult(
             int requestCode, String[] permissions, int[] grantResults) {
@@ -1345,6 +1525,15 @@ public class MainActivity extends Activity {
                         Toast.LENGTH_SHORT).show();
             }
             pendingMic = false;
+
+            if (granted && pendingMicTest) {
+                pendingMicTest = false;
+                testNativeMicrophoneInput();
+            } else if (!granted && pendingMicTest) {
+                pendingMicTest = false;
+                Toast.makeText(this, "Microphone permission is required for the input test.",
+                        Toast.LENGTH_LONG).show();
+            }
         }
     }
 
@@ -1918,6 +2107,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        releaseWhatsAppAudioSession();
         stopNativeSpeechInput();
         try {
             if (webView != null) {
@@ -1931,6 +2121,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        releaseWhatsAppAudioSession();
         stopNativeSpeechInput();
         try {
             denyPendingWebsitePermission();
