@@ -1085,29 +1085,40 @@ public class MainActivity extends Activity {
             }
             return;
         }
-        String js = "(function(){try{"
-                + "var nodes=[].slice.call(document.querySelectorAll('button,[role=button]'));"
-                + "var visible=function(b){var r=b.getBoundingClientRect();"
-                + "return r.width>0&&r.height>0&&getComputedStyle(b).visibility!=='hidden'&&!b.disabled;};"
-                + "var label=function(b){return ((b.getAttribute('aria-label')||'')+' '+"
-                + "(b.getAttribute('title')||'')+' '+(b.getAttribute('data-testid')||'')).toLowerCase();};"
-                + "var exact=nodes.filter(function(b){var t=label(b);return visible(b)&&"
-                + "(/voice message|record voice|send voice message|audio message/.test(t))"
-                + "&&!/video|call|search|dictat/.test(t);});"
-                + "if(!exact.length)return 'missing';"
-                + "exact[exact.length-1].click();return 'clicked';"
-                + "}catch(e){return 'error';}})()";
-        webView.evaluateJavascript(js, result -> {
-            if (result != null && result.contains("clicked")) {
-                Toast.makeText(this,
-                        "WhatsApp voice control pressed. Recording stop hone par WhatsApp ka Send button dabao.",
-                        Toast.LENGTH_LONG).show();
-            } else {
-                Toast.makeText(this,
-                        "WhatsApp ka voice-message mic detect nahi hua. Chat open karke dobara try karo.",
-                        Toast.LENGTH_LONG).show();
-            }
-        });
+
+        // SpeechRecognizer and WhatsApp WebRTC must never compete for the TV's
+        // microphone. Release native dictation completely before starting or
+        // stopping a WhatsApp voice note.
+        stopNativeSpeechInput();
+        autoSpeakAfterVoice = false;
+        final WebView target = webView;
+        target.postDelayed(() -> {
+            if (target != webView || !browserOpen || activePageUrl == null
+                    || !activePageUrl.contains("web.whatsapp.com")) return;
+            String js = "(function(){try{"
+                    + "var nodes=[].slice.call(document.querySelectorAll('button,[role=button]'));"
+                    + "var visible=function(b){var r=b.getBoundingClientRect();"
+                    + "return r.width>0&&r.height>0&&getComputedStyle(b).visibility!=='hidden'&&!b.disabled;};"
+                    + "var label=function(b){return ((b.getAttribute('aria-label')||'')+' '+"
+                    + "(b.getAttribute('title')||'')+' '+(b.getAttribute('data-testid')||'')).toLowerCase();};"
+                    + "var exact=nodes.filter(function(b){var t=label(b);return visible(b)&&"
+                    + "(/voice message|record voice|send voice message|audio message/.test(t))"
+                    + "&&!/video|call|search|dictat/.test(t);});"
+                    + "if(!exact.length)return 'missing';"
+                    + "exact[exact.length-1].click();return 'clicked';"
+                    + "}catch(e){return 'error';}})()";
+            target.evaluateJavascript(js, result -> {
+                if (result != null && result.contains("clicked")) {
+                    Toast.makeText(this,
+                            "WhatsApp voice control pressed. Recording stop hone par WhatsApp ka Send button dabao.",
+                            Toast.LENGTH_LONG).show();
+                } else {
+                    Toast.makeText(this,
+                            "WhatsApp ka voice-message mic detect nahi hua. Chat open karke dobara try karo.",
+                            Toast.LENGTH_LONG).show();
+                }
+            });
+        }, 300);
     }
 
     private void requestMicAndActivate() {
