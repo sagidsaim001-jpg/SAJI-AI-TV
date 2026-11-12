@@ -87,6 +87,7 @@ public class MainActivity extends Activity {
     private boolean autoSpeakAfterVoice;
     private final Handler replyHandler = new Handler(Looper.getMainLooper());
     private String lastPolledReply = "";
+    private String candidateReply = "";
     private int stableReplyPolls;
 
     @Override
@@ -962,6 +963,9 @@ public class MainActivity extends Activity {
         if (webView == null || !browserOpen) return;
         String script = "(function(){try{"
                 + "var host=(location.hostname||'').toLowerCase();"
+                + "var oldNodes=(host==='chatgpt.com'||host==='chat.openai.com')?document.querySelectorAll('[data-message-author-role=assistant]'):document.querySelectorAll('model-response,.message-content,[data-message-id]');"
+                + "var oldTexts=[].slice.call(oldNodes).map(function(n){return (n.innerText||n.textContent||'').trim();}).filter(Boolean);"
+                + "window.__sajiReplyBeforeSend=oldTexts.length?oldTexts[oldTexts.length-1]:'';"
                 + "var isGemini=host==='gemini.google.com';"
                 + "var isChatGPT=host==='chatgpt.com'||host==='chat.openai.com';"
                 + "if(!isGemini&&!isChatGPT)return 'unsupported';"
@@ -1523,9 +1527,10 @@ public class MainActivity extends Activity {
 
     private void beginAutoSpeakReplyWatch() {
         if (webView == null) return;
-        webView.evaluateJavascript(latestReplyScript(true), baseline -> {
+        webView.evaluateJavascript("(window.__sajiReplyBeforeSend||'')", baseline -> {
             lastPolledReply = decodeJsString(baseline);
-            if (lastPolledReply == null) lastPolledReply = \"\";
+            if (lastPolledReply == null) lastPolledReply = "";
+            candidateReply = "";
             stableReplyPolls = 0;
             pollForNewAiReply(0);
         });
@@ -1538,10 +1543,10 @@ public class MainActivity extends Activity {
         }
         webView.evaluateJavascript(latestReplyScript(false), result -> {
             String current = decodeJsString(result);
-            if (current != null && !current.isEmpty() && !\"missing\".equals(current)
+            if (current != null && !current.isEmpty() && !"missing".equals(current)
                     && !current.equals(lastPolledReply)) {
-                stableReplyPolls = current.equals(lastPolledReply) ? stableReplyPolls + 1 : 0;
-                lastPolledReply = current;
+                if (current.equals(candidateReply)) stableReplyPolls++;
+                else { candidateReply = current; stableReplyPolls = 0; }
                 if (stableReplyPolls >= 2) { speakText(current); return; }
             }
             replyHandler.postDelayed(() -> pollForNewAiReply(attempt + 1), 1800);
