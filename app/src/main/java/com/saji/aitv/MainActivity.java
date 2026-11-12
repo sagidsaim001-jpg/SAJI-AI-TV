@@ -76,6 +76,7 @@ public class MainActivity extends Activity {
     private AlertDialog pendingPermissionDialog;
     private String pendingWebsiteKey;
     private boolean rememberPendingWebsitePermission;
+    private String pendingWebsiteSettingKey;
     private SpeechRecognizer speechRecognizer;
     private boolean nativeSpeechListening;
 
@@ -304,7 +305,8 @@ public class MainActivity extends Activity {
         String[] options = {
                 "DEVICE SETTINGS",
                 "DEVELOPER OPTIONS",
-                "WEBVIEW INFORMATION"
+                "WEBVIEW INFORMATION",
+                "MICROPHONE PERMISSIONS"
         };
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("SAJI AI SETTINGS")
@@ -316,8 +318,10 @@ public class MainActivity extends Activity {
                         launchSystemSettings(
                                 new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS),
                                 "Developer Options are unavailable on this TV Box.");
-                    } else {
+                    } else if (which == 2) {
                         showWebViewInformation();
+                    } else {
+                        showMicrophonePermissionSettings();
                     }
                 })
                 .setNegativeButton("CLOSE", null)
@@ -1143,6 +1147,20 @@ public class MainActivity extends Activity {
             boolean granted = grantResults.length > 0
                     && grantResults[0] == PackageManager.PERMISSION_GRANTED;
 
+            if (pendingWebsiteSettingKey != null) {
+                String siteKey = pendingWebsiteSettingKey;
+                pendingWebsiteSettingKey = null;
+                if (granted) {
+                    getPreferences(MODE_PRIVATE).edit()
+                            .putBoolean(websitePreferenceKey(siteKey), true).apply();
+                    Toast.makeText(this, websiteDisplayName(siteKey)
+                            + " microphone permission enabled.", Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(this, "Android microphone permission was denied.",
+                            Toast.LENGTH_SHORT).show();
+                }
+            }
+
             if (pendingWebPermissionRequest != null) {
                 if (granted) {
                     grantPendingWebsitePermission();
@@ -1298,6 +1316,7 @@ public class MainActivity extends Activity {
         if ("chatgpt.com".equals(host) || "chat.openai.com".equals(host)) {
             return "chatgpt";
         }
+        if ("web.whatsapp.com".equals(host)) return "whatsapp";
         return null;
     }
 
@@ -1320,17 +1339,36 @@ public class MainActivity extends Activity {
     }
 
     private String websiteDisplayName(String siteKey) {
-        return "gemini".equals(siteKey) ? "Google Gemini" : "ChatGPT";
+        if ("gemini".equals(siteKey)) return "Google Gemini";
+        if ("whatsapp".equals(siteKey)) return "WhatsApp Web";
+        return "ChatGPT";
+    }
+
+    private void showMicrophonePermissionSettings() {
+        String[] sites = {"WhatsApp Web", "Google Gemini", "ChatGPT"};
+        String[] keys = {"whatsapp", "gemini", "chatgpt"};
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("MICROPHONE PERMISSIONS")
+                .setItems(sites, (d, which) -> showWebsiteMicSettings(keys[which]))
+                .setNegativeButton("CLOSE", null)
+                .create();
+        dialog.setOnShowListener(d -> {
+            if (dialog.getListView() != null) dialog.getListView().requestFocus();
+        });
+        dialog.show();
     }
 
     private void openWebsitePermissionSettings() {
         String siteKey = currentWebsiteKey();
         if (siteKey == null) {
-            Toast.makeText(this, "Open Gemini or ChatGPT first to manage its mic permission.",
+            Toast.makeText(this, "Open Gemini, ChatGPT or WhatsApp first to manage its mic permission.",
                     Toast.LENGTH_LONG).show();
             return;
         }
+        showWebsiteMicSettings(siteKey);
+    }
 
+    private void showWebsiteMicSettings(String siteKey) {
         boolean allowed = isWebsiteMicAllowed(siteKey);
         String status = allowed ? "ALLOWED" : "BLOCKED";
         String appStatus = hasAudioPermission() ? "Android app permission: ON"
@@ -1341,11 +1379,19 @@ public class MainActivity extends Activity {
                         + "\n\nThis setting controls microphone access for this website inside SAJI AI TV.")
                 .setPositiveButton(allowed ? "Keep allowed" : "Allow microphone",
                         (d, which) -> {
-                            getPreferences(MODE_PRIVATE).edit()
-                                    .putBoolean(websitePreferenceKey(siteKey), true)
-                                    .apply();
-                            Toast.makeText(this, websiteDisplayName(siteKey)
-                                    + " microphone is allowed.", Toast.LENGTH_SHORT).show();
+                            if (hasAudioPermission()) {
+                                getPreferences(MODE_PRIVATE).edit()
+                                        .putBoolean(websitePreferenceKey(siteKey), true)
+                                        .apply();
+                                Toast.makeText(this, websiteDisplayName(siteKey)
+                                        + " microphone is allowed.", Toast.LENGTH_SHORT).show();
+                            } else if (Build.VERSION.SDK_INT >= 23) {
+                                pendingWebsiteSettingKey = siteKey;
+                                requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
+                            } else {
+                                getPreferences(MODE_PRIVATE).edit()
+                                        .putBoolean(websitePreferenceKey(siteKey), true).apply();
+                            }
                         })
                 .setNegativeButton("Block microphone", (d, which) -> {
                     getPreferences(MODE_PRIVATE).edit()
