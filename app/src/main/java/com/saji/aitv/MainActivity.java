@@ -9,7 +9,6 @@ import android.content.Intent;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.RecognitionListener;
-import android.speech.tts.TextToSpeech;
 import android.os.Handler;
 import android.os.Looper;
 import org.json.JSONObject;
@@ -82,8 +81,6 @@ public class MainActivity extends Activity {
     private String pendingWebsiteSettingKey;
     private SpeechRecognizer speechRecognizer;
     private boolean nativeSpeechListening;
-    private TextToSpeech textToSpeech;
-    private boolean ttsReady;
     private boolean autoSpeakAfterVoice;
     private final Handler replyHandler = new Handler(Looper.getMainLooper());
     private String lastPolledReply = "";
@@ -96,16 +93,6 @@ public class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         enterImmersive();
         buildShell();
-        textToSpeech = new TextToSpeech(this, status -> {
-            ttsReady = status == TextToSpeech.SUCCESS;
-            if (ttsReady) {
-                int result = textToSpeech.setLanguage(new Locale("ur", "PK"));
-                if (result == TextToSpeech.LANG_MISSING_DATA
-                        || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    textToSpeech.setLanguage(Locale.getDefault());
-                }
-            }
-        });
         showHome(null, false);
     }
 
@@ -1481,16 +1468,52 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Trigger ChatGPT's own Read Aloud control in the page.
+    // This deliberately does not use Android TextToSpeech or synthesize reply text.
     private void speakLatestAiReply() {
+        triggerChatGptReadAloud(false);
+    }
+
+    private void triggerChatGptReadAloud(boolean automatic) {
         if (webView == null || !browserOpen) return;
-        String script = latestReplyScript(false);
+        String script = "(function(){try{"
+                + "var host=(location.hostname||'').toLowerCase();"
+                + "if(host!=='chatgpt.com'&&host!=='chat.openai.com')return 'not-chatgpt';"
+                + "var messages=[].slice.call(document.querySelectorAll('[data-message-author-role=assistant]'));"
+                + "if(!messages.length)return 'no-reply';"
+                + "var latest=messages[messages.length-1];"
+                + "var scope=latest.closest('article')||latest.parentElement||document;"
+                + "var labels=function(b){return ((b.getAttribute('aria-label')||'')+' '+"
+                + "(b.getAttribute('title')||'')+' '+(b.getAttribute('data-testid')||'')+' '+"
+                + "(b.innerText||b.textContent||'')).toLowerCase();};"
+                + "var visible=function(b){var r=b.getBoundingClientRect();"
+                + "return r.width>0&&r.height>0&&getComputedStyle(b).visibility!=='hidden';};"
+                + "var all=[].slice.call(scope.querySelectorAll('button,[role=button]'));"
+                + "var match=all.filter(function(b){var s=labels(b);"
+                + "return visible(b)&&(/read\\s*aloud|read\\s*response|voice-play-turn-action-button|stop\\s*reading|stop\\s*read\\s*aloud/.test(s));});"
+                + "if(!match.length){"
+                + "all=[].slice.call(document.querySelectorAll('button,[role=button]'));"
+                + "match=all.filter(function(b){var s=labels(b);"
+                + "return visible(b)&&(/read\\s*aloud|voice-play-turn-action-button|stop\\s*reading|stop\\s*read\\s*aloud/.test(s));});}"
+                + "if(!match.length)return 'button-missing';"
+                + "match[match.length-1].click();return 'clicked';"
+                + "}catch(e){return 'error';}})()";
         webView.evaluateJavascript(script, result -> {
-            String reply = decodeJsString(result);
-            if (reply == null || reply.trim().isEmpty() || "missing".equals(reply)) {
-                Toast.makeText(this, "Latest AI reply detect nahi hua. Reply screen par load hone do.", Toast.LENGTH_LONG).show();
-                return;
+            String status = decodeJsString(result);
+            if ("clicked".equals(status)) {
+                Toast.makeText(this, automatic
+                        ? "ChatGPT ka Read Aloud start kiya."
+                        : "ChatGPT Read Aloud button pressed.", Toast.LENGTH_SHORT).show();
+            } else if ("not-chatgpt".equals(status)) {
+                Toast.makeText(this, "Original Read Aloud control is currently supported here for ChatGPT Web only.",
+                        Toast.LENGTH_LONG).show();
+            } else if ("no-reply".equals(status)) {
+                Toast.makeText(this, "ChatGPT ka reply abhi screen par nahi mila.",
+                        Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this, "ChatGPT ka original Read Aloud button WebView mein detect nahi hua.",
+                        Toast.LENGTH_LONG).show();
             }
-            speakText(reply);
         });
     }
 
@@ -1518,17 +1541,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void speakText(String value) {
-        if (textToSpeech == null || !ttsReady) {
-            Toast.makeText(this, "TV ka Text-to-Speech engine ready nahi hai.", Toast.LENGTH_LONG).show();
-            return;
-        }
-        String clean = value.replaceAll("https?://\\S+", "").trim();
-        if (clean.length() > 5000) clean = clean.substring(0, 5000);
-        textToSpeech.stop();
-        textToSpeech.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "saji_ai_reply");
-    }
-
     private void beginAutoSpeakReplyWatch() {
         if (webView == null) return;
         webView.evaluateJavascript("(window.__sajiReplyBeforeSend||'')", baseline -> {
@@ -1551,7 +1563,7 @@ public class MainActivity extends Activity {
                     && !current.equals(lastPolledReply)) {
                 if (current.equals(candidateReply)) stableReplyPolls++;
                 else { candidateReply = current; stableReplyPolls = 0; }
-                if (stableReplyPolls >= 2) { speakText(current); return; }
+                if (stableReplyPolls >= 2) { triggerChatGptReadAloud(true); return; }
             }
             replyHandler.postDelayed(() -> pollForNewAiReply(attempt + 1), 1800);
         });
@@ -1792,10 +1804,6 @@ public class MainActivity extends Activity {
         } catch (Throwable ignored) {
         }
         replyHandler.removeCallbacksAndMessages(null);
-        if (textToSpeech != null) {
-            try { textToSpeech.stop(); textToSpeech.shutdown(); } catch (Throwable ignored) {}
-            textToSpeech = null;
-        }
         super.onDestroy();
     }
 }
