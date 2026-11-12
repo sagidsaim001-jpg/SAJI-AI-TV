@@ -56,6 +56,7 @@ public class MainActivity extends Activity {
     private LinearLayout browserRail;
     private LinearLayout backControl;
     private LinearLayout micControl;
+    private LinearLayout speakerControl;
     private LinearLayout sendControl;
     private LinearLayout scrollUpControl;
     private LinearLayout scrollDownControl;
@@ -130,6 +131,7 @@ public class MainActivity extends Activity {
 
         backControl = railButton(0, "BACK");
         micControl = railButton(1, "VOICE");
+        speakerControl = railButton(7, "LIVE");
         sendControl = railButton(3, "SEND");
         scrollUpControl = railButton(4, "UP");
         scrollDownControl = railButton(5, "DOWN");
@@ -140,6 +142,8 @@ public class MainActivity extends Activity {
         addGap(browserRail, dp(10));
         browserRail.addView(micControl, new LinearLayout.LayoutParams(
                 dp(62), dp(76)));
+        addGap(browserRail, dp(6));
+        browserRail.addView(speakerControl, new LinearLayout.LayoutParams(dp(62), dp(66)));
         addGap(browserRail, dp(8));
         browserRail.addView(sendControl, new LinearLayout.LayoutParams(
                 dp(62), dp(70)));
@@ -158,6 +162,7 @@ public class MainActivity extends Activity {
 
         backControl.setOnClickListener(v -> goBackOrHome());
         micControl.setOnClickListener(v -> requestMicAndActivate());
+        speakerControl.setOnClickListener(v -> openChatGPTLiveVoice());
         sendControl.setOnClickListener(v -> sendCurrentMessage());
         scrollUpControl.setOnClickListener(v -> scrollAiScreen(-1));
         scrollDownControl.setOnClickListener(v -> scrollAiScreen(1));
@@ -165,8 +170,10 @@ public class MainActivity extends Activity {
         mobileModeControl.setOnClickListener(v -> toggleMobileMode());
         backControl.setNextFocusDownId(micControl.getId());
         micControl.setNextFocusUpId(backControl.getId());
-        micControl.setNextFocusDownId(sendControl.getId());
-        sendControl.setNextFocusUpId(micControl.getId());
+        micControl.setNextFocusDownId(speakerControl.getId());
+        speakerControl.setNextFocusUpId(micControl.getId());
+        speakerControl.setNextFocusDownId(sendControl.getId());
+        sendControl.setNextFocusUpId(speakerControl.getId());
         sendControl.setNextFocusDownId(scrollUpControl.getId());
         scrollUpControl.setNextFocusUpId(sendControl.getId());
         scrollUpControl.setNextFocusDownId(scrollDownControl.getId());
@@ -191,7 +198,7 @@ public class MainActivity extends Activity {
         homeScreen.setPadding(dp(24), dp(24), dp(24), dp(24));
         homeScreen.setBackground(new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                new int[]{0xFF303338, 0xFF17191C, 0xFF25282D}));
+                new int[]{0xFF111D3C, 0xFF080D1B, 0xFF17112F}));
         root.addView(homeScreen, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
@@ -241,15 +248,15 @@ public class MainActivity extends Activity {
         int screenWidthDp = (int) (getResources().getDisplayMetrics().widthPixels / density);
         int cardWidthDp = Math.min(330, Math.max(190, (screenWidthDp - 104) / 2 - 16));
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
-                dp(cardWidthDp), dp(210));
+                dp(cardWidthDp), dp(184));
         cardParams.setMargins(dp(8), 0, dp(8), 0);
-        View geminiCard = aiCard("GEMINI", "GEMINI", "Google AI",
+        View geminiCard = aiCard("✦", "GEMINI", "Google AI",
                 0xFF8193FF, GEMINI_URL);
-        View chatgptCard = aiCard("OPENAI", "CHATGPT", "OpenAI",
-                0xFF79D9CF, CHATGPT_URL);
+        View chatgptCard = aiCard("◉", "CHATGPT", "OpenAI",
+                0xFF32CBA5, CHATGPT_URL);
         cards.addView(geminiCard, cardParams);
         LinearLayout.LayoutParams secondCardParams =
-                new LinearLayout.LayoutParams(dp(cardWidthDp), dp(210));
+                new LinearLayout.LayoutParams(dp(cardWidthDp), dp(184));
         secondCardParams.setMargins(dp(8), 0, dp(8), 0);
         cards.addView(chatgptCard, secondCardParams);
         geminiCard.setNextFocusRightId(chatgptCard.getId());
@@ -279,7 +286,7 @@ public class MainActivity extends Activity {
             homeScreen.animate().alpha(1f).translationY(0f)
                     .setDuration(260).start();
         }
-        chatgptCard.requestFocus();
+        geminiCard.requestFocus();
     }
 
     private void showSystemSettingsMenu() {
@@ -380,13 +387,12 @@ public class MainActivity extends Activity {
         card.setId(View.generateViewId());
         card.setPadding(dp(12), dp(12), dp(12), dp(12));
         card.setBackground(cardBackground(false, accent));
-        card.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
 
-        View logo = new BrandLogoView(this, "GEMINI".equals(symbol) ? 0 : 1, accent);
+        TextView logo = text(symbol, 42, accent, true);
         TextView name = text(title, 19, Color.WHITE, true);
         name.setLetterSpacing(0.08f);
         TextView detail = text(provider, 12, 0xFFAAB6D5, false);
-        card.addView(logo, new LinearLayout.LayoutParams(dp(104), dp(104)));
+        card.addView(logo);
         LinearLayout.LayoutParams nameParams =
                 new LinearLayout.LayoutParams(-2, -2);
         nameParams.topMargin = dp(8);
@@ -397,10 +403,10 @@ public class MainActivity extends Activity {
         card.addView(detail, detailParams);
 
         card.setOnFocusChangeListener((v, focused) -> {
-            v.animate().scaleX(focused ? 1.045f : 1f)
-                    .scaleY(focused ? 1.045f : 1f)
-                    .translationY(focused ? -dp(3) : 0)
-                    .setDuration(210).start();
+            v.animate().scaleX(focused ? 1.055f : 1f)
+                    .scaleY(focused ? 1.055f : 1f)
+                    .translationY(focused ? -dp(4) : 0)
+                    .setDuration(160).start();
             v.setBackground(cardBackground(focused, accent));
             v.setElevation(dp(focused ? 12 : 3));
         });
@@ -408,88 +414,50 @@ public class MainActivity extends Activity {
         return card;
     }
 
-    private class BrandLogoView extends View {
-        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final int kind;
-        private final int accent;
-        private final Path path = new Path();
-
-        BrandLogoView(Activity context, int kind, int accent) {
-            super(context);
-            this.kind = kind;
-            this.accent = accent;
-            setLayerType(View.LAYER_TYPE_SOFTWARE, null);
-        }
-
-        @Override protected void onDraw(Canvas canvas) {
-            super.onDraw(canvas);
-            float side = Math.min(getWidth(), getHeight());
-            float scale = side / 100f;
-            canvas.save();
-            canvas.translate((getWidth() - side) / 2f, (getHeight() - side) / 2f);
-            canvas.scale(scale, scale);
-            p.setStyle(Paint.Style.STROKE);
-            p.setStrokeWidth(kind == 0 ? 2.2f : 3.2f);
-            p.setStrokeCap(Paint.Cap.ROUND);
-            p.setStrokeJoin(Paint.Join.ROUND);
-            p.setColor(accent);
-            p.setShadowLayer(12f, 0f, 0f, accent);
-            if (kind == 0) {
-                path.reset();
-                path.moveTo(50, 5);
-                path.lineTo(58, 41);
-                path.lineTo(95, 50);
-                path.lineTo(58, 59);
-                path.lineTo(50, 95);
-                path.lineTo(42, 59);
-                path.lineTo(5, 50);
-                path.lineTo(42, 41);
-                path.close();
-                canvas.drawPath(path, p);
-                p.setShadowLayer(0, 0, 0, Color.TRANSPARENT);
-                p.setColor(0xFFB9C8FF);
-                p.setStrokeWidth(1.2f);
-                canvas.drawLine(50, 5, 50, 95, p);
-                canvas.drawLine(5, 50, 95, 50, p);
-                canvas.drawLine(42, 41, 58, 59, p);
-                canvas.drawLine(58, 41, 42, 59, p);
-            } else {
-                p.setStrokeWidth(3.0f);
-                p.setColor(0xFF8BE2D9);
-                for (int i = 0; i < 6; i++) {
-                    canvas.save();
-                    canvas.rotate(i * 60f, 50, 50);
-                    path.reset();
-                    path.moveTo(50, 17);
-                    path.cubicTo(67, 17, 78, 29, 78, 43);
-                    path.cubicTo(78, 55, 66, 63, 54, 63);
-                    path.cubicTo(41, 63, 31, 54, 31, 43);
-                    canvas.drawPath(path, p);
-                    canvas.restore();
-                }
-                p.setShadowLayer(0, 0, 0, Color.TRANSPARENT);
-                p.setStyle(Paint.Style.FILL);
-                p.setColor(0xFF152D31);
-                canvas.drawCircle(50, 50, 10, p);
-                p.setStyle(Paint.Style.STROKE);
-                p.setColor(0xFFB6F3EC);
-                canvas.drawCircle(50, 50, 10, p);
-            }
-            p.clearShadowLayer();
-            canvas.restore();
-        }
-    }
-
     private GradientDrawable cardBackground(boolean focused, int accent) {
         GradientDrawable drawable = new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
                 focused
-                        ? new int[]{0xCC62666A, 0xB833363A}
-                        : new int[]{0x99565A5E, 0x882A2D31});
-        drawable.setCornerRadius(dp(34));
+                        ? new int[]{0xFF2B3B64, 0xFF182442}
+                        : new int[]{0xFF202B49, 0xFF151F38});
+        drawable.setCornerRadius(dp(22));
         drawable.setStroke(focused ? dp(3) : dp(1),
-                focused ? 0xFFF1F4FF : 0x667E858C);
+                focused ? 0xFFCAD4FF : accent);
         return drawable;
+    }
+
+    // Best-effort shortcut to ChatGPT's built-in real-time voice UI.
+    // ChatGPT may change its web controls; if auto-activation is unavailable,
+    // the ChatGPT page still opens and the user can select its Voice control.
+    private void openChatGPTLiveVoice() {
+        if (!browserOpen || webView == null
+                || activePageUrl == null || !activePageUrl.contains("chatgpt.com")) {
+            openBrowser(CHATGPT_URL);
+            Toast.makeText(this, "ChatGPT opened. Live Voice will be activated when available.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        tryActivateChatGPTVoice(0);
+    }
+
+    private void tryActivateChatGPTVoice(int attempt) {
+        if (webView == null || !browserOpen || attempt >= 6) return;
+        String js = "(function(){try{"
+                + "var selectors=['button[aria-label*="voice" i]','button[title*="voice" i]',"
+                + "'button[data-testid*="voice"]'];"
+                + "for(var s=0;s<selectors.length;s++){var b=document.querySelector(selectors[s]);"
+                + "if(b && b.offsetWidth>0 && b.offsetHeight>0 && !b.disabled){b.click();return 'clicked';}}"
+                + "var bs=[].slice.call(document.querySelectorAll('button'));"
+                + "for(var i=0;i<bs.length;i++){var t=((bs[i].getAttribute('aria-label')||'')+' '+"
+                + "(bs[i].getAttribute('title')||'')).toLowerCase();"
+                + "if(t.indexOf('voice')>=0 && bs[i].offsetWidth>0){bs[i].click();return 'clicked';}}"
+                + "return 'waiting';}catch(e){return 'error';}})()";
+        webView.evaluateJavascript(js, result -> {
+            if (result == null || result.contains("waiting")) {
+                new Handler(Looper.getMainLooper()).postDelayed(
+                        () -> tryActivateChatGPTVoice(attempt + 1), 1200);
+            }
+        });
     }
 
     private void openBrowser(String url) {
@@ -674,6 +642,7 @@ public class MainActivity extends Activity {
             browserRail.setBackground(glassPanel(false));
             setRailItemSize(backControl, 58, 62);
             setRailItemSize(micControl, 58, 62);
+            setRailItemSize(speakerControl, 58, 62);
             setRailItemSize(sendControl, 58, 62);
             setRailItemSize(scrollUpControl, 58, 62);
             setRailItemSize(scrollDownControl, 58, 62);
@@ -694,7 +663,8 @@ public class MainActivity extends Activity {
             railParams.bottomMargin = dp(18);
             browserRail.setBackground(glassPanel(false));
             setRailItemSize(backControl, 62, 76);
-            setRailItemSize(micControl, 62, 76);
+            setRailItemSize(micControl, 62, 70);
+            setRailItemSize(speakerControl, 62, 66);
             setRailItemSize(sendControl, 62, 70);
             setRailItemSize(scrollUpControl, 62, 66);
             setRailItemSize(scrollDownControl, 62, 66);
@@ -728,7 +698,7 @@ public class MainActivity extends Activity {
         int gapIndex = 0;
         for (int i = 0; i < browserRail.getChildCount(); i++) {
             View child = browserRail.getChildAt(i);
-            if (child == backControl || child == micControl || child == sendControl
+            if (child == backControl || child == micControl || child == speakerControl || child == sendControl
                     || child == scrollUpControl || child == scrollDownControl
                     || child == siteControl || child == mobileModeControl) continue;
             LinearLayout.LayoutParams p = (LinearLayout.LayoutParams) child.getLayoutParams();
@@ -739,7 +709,7 @@ public class MainActivity extends Activity {
         }
     }
     private void setMobileRailGaps(int gap) {
-        View[] items = {backControl, micControl, sendControl, scrollUpControl,
+        View[] items = {backControl, micControl, speakerControl, sendControl, scrollUpControl,
                 scrollDownControl, siteControl, mobileModeControl};
         for (int i = 0; i < items.length; i++) {
             LinearLayout.LayoutParams p = (LinearLayout.LayoutParams) items[i].getLayoutParams();
@@ -774,33 +744,26 @@ public class MainActivity extends Activity {
         item.setClickable(true);
         item.setId(View.generateViewId());
         item.setBackground(glassButton(false));
-        item.setElevation(dp(3));
-        item.setClipToPadding(false);
-        item.setClipChildren(false);
+        item.setElevation(dp(2));
 
         IconView icon = new IconView(this, iconMode);
         LinearLayout.LayoutParams iconParams =
-                new LinearLayout.LayoutParams(dp(38), dp(38));
+                new LinearLayout.LayoutParams(dp(30), dp(30));
         item.addView(icon, iconParams);
 
-        TextView caption = text(label, 8, 0xFFE8EDF5, true);
-        caption.setLetterSpacing(0.12f);
+        TextView caption = text(label, 8, 0xFFD5DDF6, true);
+        caption.setLetterSpacing(0.11f);
         LinearLayout.LayoutParams cap =
                 new LinearLayout.LayoutParams(-2, -2);
         cap.topMargin = dp(7);
         item.addView(caption, cap);
 
         item.setOnFocusChangeListener((v, focused) -> {
-            v.animate().cancel();
-            v.animate().scaleX(focused ? 1.10f : 1f)
-                    .scaleY(focused ? 1.10f : 1f)
-                    .translationZ(dp(focused ? 10 : 0))
-                    .setDuration(190)
-                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
-                    .start();
+            v.animate().scaleX(focused ? 1.09f : 1f)
+                    .scaleY(focused ? 1.09f : 1f)
+                    .setDuration(150).start();
             v.setBackground(glassButton(focused));
-            v.setElevation(dp(focused ? 15 : 3));
-            caption.setTextColor(focused ? Color.WHITE : 0xFFE8EDF5);
+            v.setElevation(dp(focused ? 12 : 2));
             icon.setFocusedState(focused);
         });
         return item;
@@ -809,9 +772,9 @@ public class MainActivity extends Activity {
     private GradientDrawable glassPanel(boolean focused) {
         GradientDrawable drawable = new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                new int[]{0xE6AAB4C2, 0xE64B5664, 0xE61B222D});
-        drawable.setCornerRadius(dp(30));
-        drawable.setStroke(dp(1), focused ? 0xFFF4FAFF : 0x887E8998);
+                new int[]{0xE52B3B5C, 0xE811192E});
+        drawable.setCornerRadius(dp(26));
+        drawable.setStroke(dp(1), focused ? 0xFF92A9FF : 0x556F82BA);
         return drawable;
     }
 
@@ -819,12 +782,11 @@ public class MainActivity extends Activity {
         GradientDrawable drawable = new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
                 focused
-                        ? new int[]{0xFFE7EDF5, 0xFF8795A8, 0xFF344253}
-                        : new int[]{0xCC9AA7B7, 0xAA4D5968, 0xDD171F2A});
-        drawable.setCornerRadius(dp(23));
+                        ? new int[]{0xFF526A9C, 0xFF26395F}
+                        : new int[]{0xD9364A72, 0xD91A2946});
+        drawable.setCornerRadius(dp(19));
         drawable.setStroke(focused ? dp(2) : dp(1),
-                focused ? 0xFFFFFFFF : 0x99D2DFED);
-        drawable.setGradientType(GradientDrawable.LINEAR_GRADIENT);
+                focused ? 0xFFE0E7FF : 0x667F9AE0);
         return drawable;
     }
 
@@ -1462,13 +1424,11 @@ public class MainActivity extends Activity {
                     (getHeight() - 48f * scale) / 2f);
             canvas.scale(scale, scale);
 
-            paint.setColor(focused ? Color.WHITE : 0xFFE7EEF6);
+            paint.setColor(focused ? Color.WHITE : 0xFFE8EEFF);
             paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(focused ? 3.8f : 3.1f);
+            paint.setStrokeWidth(3.1f);
             paint.setStrokeCap(Paint.Cap.ROUND);
             paint.setStrokeJoin(Paint.Join.ROUND);
-            paint.setShadowLayer(focused ? 13f : 5f, 0f, 0f,
-                    focused ? 0xFFEAF7FF : 0x778DA8C8);
 
             if (iconMode == 1) {
                 RectF capsule = new RectF(18, 5, 30, 27);
@@ -1504,6 +1464,16 @@ public class MainActivity extends Activity {
                 path.moveTo(24, 8);
                 path.lineTo(24, 32);
                 canvas.drawPath(path, paint);
+            } else if (iconMode == 7) {
+                canvas.drawArc(new RectF(9, 9, 39, 39), -42, 84, false, paint);
+                canvas.drawArc(new RectF(15, 15, 33, 33), -42, 84, false, paint);
+                path.reset();
+                path.moveTo(8, 19); path.lineTo(15, 19); path.lineTo(25, 11);
+                path.lineTo(25, 37); path.lineTo(15, 29); path.lineTo(8, 29);
+                path.close();
+                paint.setStyle(Paint.Style.FILL);
+                canvas.drawPath(path, paint);
+                paint.setStyle(Paint.Style.STROKE);
             } else if (iconMode == 6) {
                 RectF phone = new RectF(14, 4, 34, 44);
                 canvas.drawRoundRect(phone, 4, 4, paint);
@@ -1528,13 +1498,6 @@ public class MainActivity extends Activity {
                 canvas.drawCircle(28, 24, 2.5f, paint);
                 canvas.drawCircle(23, 30, 2.5f, paint);
             }
-            if (focused) {
-                paint.setShadowLayer(0, 0, 0, Color.TRANSPARENT);
-                paint.setColor(0xFFF8FCFF);
-                paint.setStrokeWidth(1.15f);
-                canvas.drawLine(8, 5, 40, 5, paint);
-            }
-            paint.clearShadowLayer();
             canvas.restore();
         }
     }
