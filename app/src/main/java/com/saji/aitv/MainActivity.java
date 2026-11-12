@@ -71,6 +71,7 @@ public class MainActivity extends Activity {
     private LinearLayout scrollDownControl;
     private LinearLayout siteControl;
     private LinearLayout mobileModeControl;
+    private TextView exitControl;
     private TextView settingsControl;
     private boolean mobileMode;
     private String activePageUrl = GEMINI_URL;
@@ -152,6 +153,30 @@ public class MainActivity extends Activity {
         railParams.bottomMargin = dp(18);
         root.addView(browserRail, railParams);
 
+        // Dedicated browser EXIT shortcut. It returns to the AI home screen
+        // without closing the app or changing any existing browser controls.
+        exitControl = text("EXIT", 12, Color.WHITE, true);
+        exitControl.setGravity(Gravity.CENTER);
+        exitControl.setFocusable(true);
+        exitControl.setFocusableInTouchMode(true);
+        exitControl.setClickable(true);
+        exitControl.setId(View.generateViewId());
+        exitControl.setContentDescription("Exit browser and return to AI home");
+        exitControl.setBackground(glassButton(false));
+        exitControl.setElevation(dp(10));
+        FrameLayout.LayoutParams exitParams = new FrameLayout.LayoutParams(
+                dp(78), dp(48), Gravity.TOP | Gravity.END);
+        exitParams.topMargin = dp(18);
+        exitParams.rightMargin = dp(18);
+        root.addView(exitControl, exitParams);
+        exitControl.setVisibility(View.GONE);
+        exitControl.setOnFocusChangeListener((v, focused) -> {
+            v.animate().scaleX(focused ? 1.08f : 1f)
+                    .scaleY(focused ? 1.08f : 1f).setDuration(140).start();
+            v.setBackground(glassButton(focused));
+        });
+        exitControl.setOnClickListener(v -> showHome(null, true));
+
         backControl = railButton(0, "BACK");
         micControl = railButton(1, "AI MIC");
         speakerControl = railButton(7, "LIVE");
@@ -200,6 +225,8 @@ public class MainActivity extends Activity {
         scrollDownControl.setOnClickListener(v -> scrollAiScreen(1));
         siteControl.setOnClickListener(v -> openWebsitePermissionSettings());
         mobileModeControl.setOnClickListener(v -> toggleMobileMode());
+        backControl.setNextFocusRightId(exitControl.getId());
+        exitControl.setNextFocusLeftId(backControl.getId());
         backControl.setNextFocusDownId(micControl.getId());
         micControl.setNextFocusUpId(backControl.getId());
         micControl.setNextFocusDownId(whatsappVoiceControl.getId());
@@ -227,6 +254,7 @@ public class MainActivity extends Activity {
         browserOpen = false;
         if (webView != null) webView.setVisibility(View.GONE);
         browserRail.setVisibility(View.GONE);
+        if (exitControl != null) exitControl.setVisibility(View.GONE);
         if (homeScreen != null) root.removeView(homeScreen);
 
         homeScreen = new LinearLayout(this);
@@ -542,6 +570,10 @@ public class MainActivity extends Activity {
             browserOpen = true;
             webView.setVisibility(View.VISIBLE);
             browserRail.setVisibility(View.VISIBLE);
+            if (exitControl != null) {
+                exitControl.setVisibility(View.VISIBLE);
+                exitControl.bringToFront();
+            }
             activePageUrl = url;
             whatsappVoiceControl.setVisibility(url.contains("web.whatsapp.com") ? View.VISIBLE : View.GONE);
             configureWebViewForMode();
