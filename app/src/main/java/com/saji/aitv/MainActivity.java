@@ -133,7 +133,7 @@ public class MainActivity extends Activity {
         browserRail = new LinearLayout(this);
         browserRail.setOrientation(LinearLayout.VERTICAL);
         browserRail.setGravity(Gravity.CENTER);
-        browserRail.setPadding(dp(8), dp(14), dp(8), dp(14));
+        browserRail.setPadding(dp(8), dp(8), dp(8), dp(8));
         browserRail.setBackground(glassPanel(false));
         FrameLayout.LayoutParams railParams = new FrameLayout.LayoutParams(
                 dp(82), FrameLayout.LayoutParams.MATCH_PARENT,
@@ -153,22 +153,22 @@ public class MainActivity extends Activity {
         siteControl = railButton(2, "SITE");
         mobileModeControl = railButton(6, "MOBILE");
         browserRail.addView(backControl, new LinearLayout.LayoutParams(
-                dp(62), dp(76)));
-        addGap(browserRail, dp(10));
+                dp(62), dp(48)));
+        addGap(browserRail, dp(2));
         browserRail.addView(micControl, new LinearLayout.LayoutParams(
                 dp(62), dp(76)));
-        addGap(browserRail, dp(5));
-        browserRail.addView(whatsappVoiceControl, new LinearLayout.LayoutParams(dp(62), dp(68)));
+        addGap(browserRail, dp(2));
+        browserRail.addView(whatsappVoiceControl, new LinearLayout.LayoutParams(dp(62), dp(58)));
         addGap(browserRail, dp(5));
         browserRail.addView(speakerControl, new LinearLayout.LayoutParams(dp(62), dp(58)));
-        addGap(browserRail, dp(4));
+        addGap(browserRail, dp(2));
         browserRail.addView(speakReplyControl, new LinearLayout.LayoutParams(dp(62), dp(58)));
         addGap(browserRail, dp(5));
         browserRail.addView(sendControl, new LinearLayout.LayoutParams(
-                dp(62), dp(70)));
-        addGap(browserRail, dp(6));
+                dp(62), dp(58)));
+        addGap(browserRail, dp(2));
         browserRail.addView(scrollUpControl, new LinearLayout.LayoutParams(
-                dp(62), dp(66)));
+                dp(62), dp(54)));
         addGap(browserRail, dp(5));
         browserRail.addView(scrollDownControl, new LinearLayout.LayoutParams(
                 dp(62), dp(66)));
